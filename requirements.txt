@@ -1,0 +1,23 @@
+fastapi==0.115.6
+uvicorn==0.34.0
+pydantic-settings==2.7.1
+
+# Telegram
+aiogram==3.19.0
+
+# AI
+anthropic==0.42.0
+openai==1.58.1
+
+# Database
+sqlalchemy==2.0.36
+asyncpg==0.30.0
+
+# Redis
+redis==5.2.1
+
+# Scraping
+firecrawl-py==1.15.0
+
+# HTTP
+httpx==0.28.1
