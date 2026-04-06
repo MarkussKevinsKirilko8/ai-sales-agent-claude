@@ -181,6 +181,13 @@ async def handle_voice(message: types.Message, bot: Bot) -> None:
 @router.message(F.text)
 async def handle_message(message: types.Message, bot: Bot) -> None:
     """Handle all incoming text messages."""
+    import logging as _log
+    _log.getLogger(__name__).info(f"Message from chat_id={message.chat.id}, type={message.chat.type}, text={message.text[:50]}")
+
+    # Ignore group messages (only respond in private chats)
+    if message.chat.type in ("group", "supergroup"):
+        return
+
     # Manager request
     if is_manager_request(message.text) or message.text.strip() == "👤 Manager":
         await handle_manager_start(message)
