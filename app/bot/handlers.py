@@ -9,6 +9,9 @@ from aiogram.types import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     LinkPreviewOptions,
+    ReplyKeyboardMarkup,
+    ReplyKeyboardRemove,
+    KeyboardButton,
     WebAppInfo,
 )
 
@@ -30,26 +33,35 @@ logger = logging.getLogger(__name__)
 # Shop URL — Telegram mini app
 SHOP_URL = "https://razvedka_rf_bot.miniapp-rf.app"
 
-
 # Claude client for summarization
 _claude = anthropic.AsyncAnthropic(api_key=settings.claude_api_key)
 
 
-def main_buttons() -> InlineKeyboardMarkup:
-    """Inline buttons for Shop and Manager — always side by side."""
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text="🛒 Shop", web_app=WebAppInfo(url=SHOP_URL)),
-            InlineKeyboardButton(text="👤 Manager", callback_data="request_manager"),
-        ]
-    ])
+def main_keyboard() -> ReplyKeyboardMarkup:
+    """Reply keyboard with Shop and Manager — pinned below chat input."""
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [
+                KeyboardButton(text="🛒 Shop", web_app=WebAppInfo(url=SHOP_URL)),
+                KeyboardButton(text="👤 Manager"),
+            ],
+        ],
+        resize_keyboard=True,
+        is_persistent=True,
+        input_field_placeholder="Ask about products...",
+    )
 
 
-def manager_close_button() -> InlineKeyboardMarkup:
-    """Inline Close button for manager mode."""
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="❌ Close Manager Chat", callback_data="close_manager")]
-    ])
+def manager_keyboard() -> ReplyKeyboardMarkup:
+    """Reply keyboard during manager mode — only Close button."""
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="❌ Close Manager Chat")],
+        ],
+        resize_keyboard=True,
+        is_persistent=True,
+        input_field_placeholder="Chatting with manager...",
+    )
 
 
 async def summarize_conversation(history: list[dict]) -> str:
@@ -114,17 +126,15 @@ async def handle_manager_start(message: types.Message, bot: Bot):
 
     await message.answer(
         "Переключаем вас на менеджера. График работы: Пн-Пт 09:00-18:00 МСК.\n"
-        "Ожидайте ответа менеджера. Чат автоматически вернётся к AI через 5 минут без активности.\n"
-        "Для завершения напишите /close\n\n"
+        "Ожидайте ответа менеджера. Чат автоматически вернётся к AI через 5 минут без активности.\n\n"
         "Connecting you with a manager. Working hours: Mon-Fri 09:00-18:00 Moscow time.\n"
-        "Waiting for manager response. Chat will return to AI after 5 minutes of inactivity.\n"
-        "Type /close to end manager chat.",
-        reply_markup=manager_close_button(),
+        "Waiting for manager response. Chat will return to AI after 5 minutes of inactivity.",
+        reply_markup=manager_keyboard(),
     )
 
 
 async def send_response(message: types.Message, bot: Bot, response: AgentResponse) -> None:
-    """Send the agent response with product images and buttons."""
+    """Send the agent response with product images."""
     formatted_text = markdown_to_telegram_html(response.text)
 
     if response.product_images:
@@ -139,13 +149,11 @@ async def send_response(message: types.Message, bot: Bot, response: AgentRespons
             except Exception:
                 pass
 
-    buttons = main_buttons()
-
     await message.answer(
         formatted_text,
         parse_mode="HTML",
         link_preview_options=LinkPreviewOptions(is_disabled=True),
-        reply_markup=buttons,
+        reply_markup=main_keyboard(),
     )
 
 
@@ -158,7 +166,7 @@ async def handle_start(message: types.Message) -> None:
         "👋 Welcome! I'm the AI Sales Assistant for Hilma Biocare products.\n\n"
         "Ask me anything about products, availability, or pricing.\n"
         "Use the buttons below to open the Shop or contact a Manager.",
-        reply_markup=main_buttons(),
+        reply_markup=main_keyboard(),
     )
 
 
@@ -171,34 +179,33 @@ async def handle_close_command(message: types.Message) -> None:
         await disable_manager_mode(message.chat.id)
         await message.answer(
             "Чат с менеджером завершён.\nManager chat closed.",
-            reply_markup=main_buttons(),
+            reply_markup=main_keyboard(),
         )
     else:
         await message.answer("You're already chatting with the AI assistant.")
 
 
-@router.callback_query(F.data == "request_manager")
-async def handle_manager_callback(callback: types.CallbackQuery, bot: Bot) -> None:
-    """Handle Manager inline button press."""
-    if await is_manager_mode(callback.message.chat.id):
-        await callback.answer("Already connected to manager / Вы уже подключены к менеджеру")
+@router.message(F.text == "👤 Manager")
+async def handle_manager_button(message: types.Message, bot: Bot) -> None:
+    """Handle Manager button press."""
+    if message.chat.type in ("group", "supergroup"):
         return
-    await callback.answer()
-    await handle_manager_start(callback.message, bot)
+    if await is_manager_mode(message.chat.id):
+        await message.answer("Вы уже подключены к менеджеру. / Already connected to manager.")
+        return
+    await handle_manager_start(message, bot)
 
 
-@router.callback_query(F.data == "close_manager")
-async def handle_close_manager(callback: types.CallbackQuery) -> None:
-    """Handle Close inline button — return to AI mode."""
-    await disable_manager_mode(callback.message.chat.id)
-    await callback.answer("Manager chat closed")
-    await callback.message.edit_text(
-        "Чат с менеджером завершён. / Manager chat closed."
-    )
-    await callback.message.answer(
-        "Вы снова общаетесь с AI-ассистентом.\n\n"
-        "You're now back with the AI assistant.",
-        reply_markup=main_buttons(),
+@router.message(F.text == "❌ Close Manager Chat")
+async def handle_close_button(message: types.Message) -> None:
+    """Handle Close Manager Chat button press."""
+    if message.chat.type in ("group", "supergroup"):
+        return
+    await disable_manager_mode(message.chat.id)
+    await message.answer(
+        "Чат с менеджером завершён. Вы снова общаетесь с AI-ассистентом.\n\n"
+        "Manager chat closed. You're now back with the AI assistant.",
+        reply_markup=main_keyboard(),
     )
 
 
