@@ -31,7 +31,12 @@ logger = logging.getLogger(__name__)
 SHOP_URL = "https://razvedka_rf_bot.miniapp-rf.app"
 
 # Manager trigger words
-MANAGER_TRIGGERS = {"менеджер", "manager", "менеджера", "оператор", "operator"}
+MANAGER_TRIGGERS = {
+    "менеджер", "менеджера", "менеджеру", "менеджэр",
+    "manager", "menager", "menejer",
+    "оператор", "оператора", "operator",
+    "👤 manager",
+}
 
 # Claude client for summarization
 _claude = anthropic.AsyncAnthropic(api_key=settings.claude_api_key)
@@ -66,8 +71,8 @@ def shop_inline_button() -> InlineKeyboardMarkup:
 
 def is_manager_request(text: str) -> bool:
     """Check if the user wants to speak with a manager."""
-    cleaned = text.strip().lower().replace("👤 ", "")
-    return cleaned in MANAGER_TRIGGERS
+    cleaned = text.strip().lower()
+    return any(trigger in cleaned for trigger in MANAGER_TRIGGERS)
 
 
 async def summarize_conversation(history: list[dict]) -> str:
