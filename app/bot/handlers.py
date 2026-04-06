@@ -4,12 +4,14 @@ import logging
 import anthropic
 from aiogram import Bot, F, Router, types
 from aiogram.enums import ChatAction
+from aiogram.filters import CommandStart
 from aiogram.types import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     LinkPreviewOptions,
     ReplyKeyboardMarkup,
     KeyboardButton,
+    WebAppInfo,
 )
 
 from app.agents.sales_agent import AgentResponse, get_agent_response
@@ -39,9 +41,13 @@ def main_keyboard() -> ReplyKeyboardMarkup:
     """Main persistent keyboard with Shop and Manager buttons."""
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="🛒 Shop"), KeyboardButton(text="👤 Manager")],
+            [
+                KeyboardButton(text="🛒 Shop", web_app=WebAppInfo(url=SHOP_URL)),
+                KeyboardButton(text="👤 Manager"),
+            ],
         ],
         resize_keyboard=True,
+        is_persistent=True,
     )
 
 
@@ -52,13 +58,14 @@ def manager_mode_keyboard() -> ReplyKeyboardMarkup:
             [KeyboardButton(text="❌ Close")],
         ],
         resize_keyboard=True,
+        is_persistent=True,
     )
 
 
 def shop_inline_button() -> InlineKeyboardMarkup:
     """Inline Shop button for product responses."""
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🛒 Open Shop", url=SHOP_URL)]
+        [InlineKeyboardButton(text="🛒 Open Shop", web_app=WebAppInfo(url=SHOP_URL))]
     ])
 
 
@@ -160,6 +167,19 @@ async def send_response(message: types.Message, bot: Bot, response: AgentRespons
     )
 
 
+@router.message(CommandStart())
+async def handle_start(message: types.Message) -> None:
+    """Handle /start command — show welcome message and keyboard."""
+    if message.chat.type in ("group", "supergroup"):
+        return
+    await message.answer(
+        "👋 Welcome! I'm the AI Sales Assistant for Hilma Biocare products.\n\n"
+        "Ask me anything about products, availability, or pricing.\n"
+        "Use the buttons below to open the Shop or contact a Manager.",
+        reply_markup=main_keyboard(),
+    )
+
+
 @router.message(F.text == "👤 Manager")
 async def handle_manager_button(message: types.Message, bot: Bot) -> None:
     """Handle Manager button press — direct trigger without Haiku."""
@@ -170,13 +190,13 @@ async def handle_manager_button(message: types.Message, bot: Bot) -> None:
 
 @router.message(F.text == "🛒 Shop")
 async def handle_shop_button(message: types.Message) -> None:
-    """Handle Shop button press."""
+    """Handle Shop button text fallback (web_app opens directly on supported clients)."""
     if message.chat.type in ("group", "supergroup"):
         return
     await message.answer(
         "🛒 Open the shop to browse products and place your order:",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🛒 Open Shop", url=SHOP_URL)]
+            [InlineKeyboardButton(text="🛒 Open Shop", web_app=WebAppInfo(url=SHOP_URL))]
         ]),
     )
 
