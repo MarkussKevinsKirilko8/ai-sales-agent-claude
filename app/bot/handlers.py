@@ -51,15 +51,11 @@ def main_keyboard() -> ReplyKeyboardMarkup:
     )
 
 
-def manager_mode_keyboard() -> ReplyKeyboardMarkup:
-    """Keyboard shown during manager mode with Close button."""
-    return ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text="❌ Close")],
-        ],
-        resize_keyboard=True,
-        is_persistent=True,
-    )
+def manager_close_button() -> InlineKeyboardMarkup:
+    """Inline Close button for manager mode — attached to message, never disappears."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="❌ Close Manager Chat", callback_data="close_manager")]
+    ])
 
 
 def shop_inline_button() -> InlineKeyboardMarkup:
@@ -131,12 +127,10 @@ async def handle_manager_start(message: types.Message, bot: Bot):
 
     await message.answer(
         "Переключаем вас на менеджера. График работы: Пн-Пт 09:00-18:00 МСК.\n"
-        "Ожидайте ответа менеджера. Чат автоматически вернётся к AI через 5 минут без активности "
-        "или нажмите кнопку \"❌ Close\".\n\n"
+        "Ожидайте ответа менеджера. Чат автоматически вернётся к AI через 5 минут без активности.\n\n"
         "Connecting you with a manager. Working hours: Mon-Fri 09:00-18:00 Moscow time.\n"
-        "Waiting for manager response. Chat will return to AI after 5 minutes of inactivity "
-        "or press \"❌ Close\".",
-        reply_markup=manager_mode_keyboard(),
+        "Waiting for manager response. Chat will return to AI after 5 minutes of inactivity.",
+        reply_markup=manager_close_button(),
     )
 
 
@@ -201,15 +195,17 @@ async def handle_shop_button(message: types.Message) -> None:
     )
 
 
-@router.message(F.text == "❌ Close")
-async def handle_close_manager(message: types.Message) -> None:
-    """Handle Close button — return to AI mode."""
-    if message.chat.type in ("group", "supergroup"):
-        return
-    await disable_manager_mode(message.chat.id)
-    await message.answer(
-        "Чат с менеджером завершён. Вы снова общаетесь с AI-ассистентом.\n\n"
-        "Manager chat closed. You're now back with the AI assistant.",
+@router.callback_query(F.data == "close_manager")
+async def handle_close_manager(callback: types.CallbackQuery) -> None:
+    """Handle Close inline button — return to AI mode."""
+    await disable_manager_mode(callback.message.chat.id)
+    await callback.answer("Manager chat closed")
+    await callback.message.edit_text(
+        "Чат с менеджером завершён. / Manager chat closed."
+    )
+    await callback.message.answer(
+        "Вы снова общаетесь с AI-ассистентом.\n\n"
+        "You're now back with the AI assistant.",
         reply_markup=main_keyboard(),
     )
 
