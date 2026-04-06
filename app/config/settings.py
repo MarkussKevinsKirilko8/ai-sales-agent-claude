@@ -29,6 +29,9 @@ class Settings(BaseSettings):
     redis_host: str = "redis"
     redis_port: int = 6379
 
+    # Manager group chat ID
+    manager_group_id: int = -5179724701
+
     # Sync schedule (hours between API syncs) — 6 = every 6 hours
     scrape_interval_hours: int = 6
 
