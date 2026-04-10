@@ -245,9 +245,13 @@ class ProductAPIScraper:
 
             content = _build_product_content(product)
 
+            # Build shop URL from product code (e.g. ?product=46HB)
+            code = product.get("code", "")
+            shop_url = f"https://razvedka_rf_bot.miniapp-rf.app?product={code}" if code else product.get("URL", "")
+
             products.append({
                 "source": self.source,
-                "url": product.get("URL", ""),
+                "url": shop_url,
                 "title": title,
                 "content": content,
                 "image_url": image_url,
