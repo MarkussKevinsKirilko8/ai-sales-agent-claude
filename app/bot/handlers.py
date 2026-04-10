@@ -10,13 +10,13 @@ from aiogram.types import (
     InlineKeyboardMarkup,
     LinkPreviewOptions,
     MenuButtonDefault,
-    WebAppInfo,
 )
 
 from app.agents.sales_agent import AgentResponse, get_agent_response
 from app.config.settings import settings
 from app.services.chat_history import add_message, get_history
 from app.services.formatting import markdown_to_telegram_html
+from app.services.i18n import detect_language, get_strings
 from app.services.manager_mode import (
     enable_manager_mode,
     disable_manager_mode,
@@ -32,92 +32,45 @@ SHOP_URL = "https://razvedka_rf_bot.miniapp-rf.app"
 
 _claude = anthropic.AsyncAnthropic(api_key=settings.claude_api_key)
 
-# Language strings
-STRINGS = {
-    "ru": {
-        "shop": "🛒 Магазин",
-        "manager": "👤 Менеджер",
-        "close": "❌ Закрыть чат с менеджером",
-        "manager_connect": (
-            "Переключаем вас на менеджера. График работы: Пн-Пт 09:00-18:00 МСК.\n"
-            "Ожидайте ответа менеджера. Чат автоматически вернётся к AI через 5 минут без активности.\n"
-            "Напишите /close для завершения."
-        ),
-        "manager_closed": "Чат с менеджером завершён. Вы снова общаетесь с AI-ассистентом.",
-        "manager_already": "Вы уже подключены к менеджеру.",
-        "already_ai": "Вы уже общаетесь с AI-ассистентом.",
-        "welcome": (
-            "👋 Добро пожаловать! Я AI-ассистент по продукции Hilma Biocare.\n\n"
-            "Задайте любой вопрос о продуктах, наличии или ценах.\n\n"
-            "🛒 Нажмите <b>Магазин</b> — для просмотра и заказа\n"
-            "👤 Нажмите <b>Менеджер</b> — для связи с менеджером"
-        ),
-        "voice_fail": "Не удалось распознать голосовое сообщение. Попробуйте ещё раз или отправьте текст.",
-        "other": "Отправьте текстовое или голосовое сообщение, и я помогу вам найти информацию.",
-    },
-    "en": {
-        "shop": "🛒 Shop",
-        "manager": "👤 Manager",
-        "close": "❌ Close Manager Chat",
-        "manager_connect": (
-            "Connecting you with a manager. Working hours: Mon-Fri 09:00-18:00 Moscow time.\n"
-            "Waiting for manager response. Chat will return to AI after 5 minutes of inactivity.\n"
-            "Type /close to end."
-        ),
-        "manager_closed": "Manager chat closed. You're now back with the AI assistant.",
-        "manager_already": "Already connected to manager.",
-        "already_ai": "You're already chatting with the AI assistant.",
-        "welcome": (
-            "👋 Welcome! I'm the AI Sales Assistant for Hilma Biocare products.\n\n"
-            "Ask me anything about products, availability, or pricing.\n\n"
-            "🛒 Press <b>Shop</b> — to browse and order\n"
-            "👤 Press <b>Manager</b> — to contact support"
-        ),
-        "voice_fail": "Couldn't understand the voice message. Please try again or send a text.",
-        "other": "Send a text or voice message and I'll help you find information.",
-    },
-}
 
-
-def detect_lang(text: str) -> str:
-    """Simple check: if text has Cyrillic characters, it's Russian."""
-    for char in text:
-        if "\u0400" <= char <= "\u04ff":
-            return "ru"
-    return "en"
-
-
-def get_strings(lang: str) -> dict:
-    return STRINGS.get(lang, STRINGS["ru"])
-
-
-def action_buttons(lang: str = "ru") -> InlineKeyboardMarkup:
-    s = get_strings(lang)
+def action_buttons(strings: dict, shop_url: str = SHOP_URL) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton(text=s["shop"], url=SHOP_URL),
-            InlineKeyboardButton(text=s["manager"], callback_data="request_manager"),
+            InlineKeyboardButton(text=strings["shop"], url=shop_url),
+            InlineKeyboardButton(text=strings["manager"], callback_data="request_manager"),
         ]
     ])
 
 
-def close_button(lang: str = "ru") -> InlineKeyboardMarkup:
-    s = get_strings(lang)
+def close_button(strings: dict) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=s["close"], callback_data="close_manager")]
+        [InlineKeyboardButton(text=strings["close"], callback_data="close_manager")]
     ])
 
 
-async def summarize_conversation(history: list[dict], lang: str = "ru") -> str:
+async def get_user_lang(chat_id: int, current_text: str = "") -> str:
+    """Get the user's preferred language. Detects from current text or recent history."""
+    if current_text:
+        return await detect_language(current_text)
+
+    history = await get_history(chat_id)
+    if history:
+        last_user = next((m["content"] for m in reversed(history) if m["role"] == "user"), "")
+        if last_user:
+            return await detect_language(last_user)
+
+    return "Russian"
+
+
+async def summarize_conversation(history: list[dict], lang: str = "Russian") -> str:
     if not history:
-        return "Новый клиент, без истории переписки." if lang == "ru" else "New customer, no chat history."
+        return "Новый клиент, без истории переписки."
 
     conversation = "\n".join(
         f"{'User' if m['role'] == 'user' else 'Bot'}: {m['content'][:300]}"
         for m in history[-8:]
     )
 
-    summary_lang = "Russian" if lang == "ru" else "English"
     try:
         response = await _claude.messages.create(
             model="claude-haiku-4-5-20251001",
@@ -125,7 +78,7 @@ async def summarize_conversation(history: list[dict], lang: str = "ru") -> str:
             messages=[{
                 "role": "user",
                 "content": (
-                    f"Summarize this customer conversation in 2-3 sentences in {summary_lang}. "
+                    f"Summarize this customer conversation in 2-3 sentences in {lang}. "
                     "Focus on: what product(s) the customer is interested in, what they need help with, "
                     "and any important details. Be concise.\n\n"
                     f"Conversation:\n{conversation}"
@@ -135,10 +88,10 @@ async def summarize_conversation(history: list[dict], lang: str = "ru") -> str:
         return response.content[0].text
     except Exception as e:
         logger.error(f"Summary generation failed: {e}")
-        return "Не удалось создать сводку." if lang == "ru" else "Could not generate summary."
+        return "Не удалось создать сводку."
 
 
-async def handle_manager_start(message: types.Message, bot: Bot, lang: str = "ru"):
+async def handle_manager_start(message: types.Message, bot: Bot, lang: str = "Russian"):
     await enable_manager_mode(message.chat.id)
 
     history = await get_history(message.chat.id)
@@ -165,14 +118,19 @@ async def handle_manager_start(message: types.Message, bot: Bot, lang: str = "ru
     except Exception as e:
         logger.error(f"Failed to send to manager group: {e}")
 
-    s = get_strings(lang)
+    strings = await get_strings(lang)
     await message.answer(
-        s["manager_connect"],
-        reply_markup=close_button(lang),
+        strings["manager_connect"],
+        reply_markup=close_button(strings),
     )
 
 
-async def send_response(message: types.Message, bot: Bot, response: AgentResponse, lang: str = "ru") -> None:
+async def send_response(
+    message: types.Message,
+    bot: Bot,
+    response: AgentResponse,
+    lang: str = "Russian",
+) -> None:
     formatted_text = markdown_to_telegram_html(response.text)
 
     if response.product_images:
@@ -187,11 +145,20 @@ async def send_response(message: types.Message, bot: Bot, response: AgentRespons
             except Exception:
                 pass
 
+    strings = await get_strings(lang)
+
+    # If exactly 1 specific product, link Shop button directly to its page
+    shop_url = SHOP_URL
+    if response.product_images and len(response.product_images) == 1:
+        product_url = response.product_images[0].get("url")
+        if product_url:
+            shop_url = product_url
+
     await message.answer(
         formatted_text,
         parse_mode="HTML",
         link_preview_options=LinkPreviewOptions(is_disabled=True),
-        reply_markup=action_buttons(lang),
+        reply_markup=action_buttons(strings, shop_url=shop_url),
     )
 
 
@@ -206,11 +173,11 @@ async def handle_start(message: types.Message, bot: Bot) -> None:
     except Exception:
         pass
 
-    s = get_strings("ru")
+    strings = await get_strings("Russian")
     await message.answer(
-        s["welcome"],
+        strings["welcome"],
         parse_mode="HTML",
-        reply_markup=action_buttons("ru"),
+        reply_markup=action_buttons(strings),
     )
 
 
@@ -219,33 +186,28 @@ async def handle_close_command(message: types.Message) -> None:
     if message.chat.type in ("group", "supergroup"):
         return
 
-    lang = detect_lang(message.text or "")
+    lang = await get_user_lang(message.chat.id, message.text or "")
+    strings = await get_strings(lang)
 
     if await is_manager_mode(message.chat.id):
         await disable_manager_mode(message.chat.id)
-        s = get_strings(lang)
         await message.answer(
-            s["manager_closed"],
-            reply_markup=action_buttons(lang),
+            strings["manager_closed"],
+            reply_markup=action_buttons(strings),
         )
     else:
-        s = get_strings(lang)
-        await message.answer(s["already_ai"])
+        await message.answer(strings["already_ai"])
 
 
 @router.callback_query(F.data == "request_manager")
 async def handle_manager_callback(callback: types.CallbackQuery, bot: Bot) -> None:
+    lang = await get_user_lang(callback.message.chat.id)
+    strings = await get_strings(lang)
+
     if await is_manager_mode(callback.message.chat.id):
-        await callback.answer("Вы уже подключены к менеджеру")
+        await callback.answer(strings["manager_already"])
         return
     await callback.answer()
-
-    # Detect language from recent history
-    history = await get_history(callback.message.chat.id)
-    lang = "ru"
-    if history:
-        last_user = next((m["content"] for m in reversed(history) if m["role"] == "user"), "")
-        lang = detect_lang(last_user)
 
     await handle_manager_start(callback.message, bot, lang)
 
@@ -255,20 +217,13 @@ async def handle_close_manager(callback: types.CallbackQuery) -> None:
     await disable_manager_mode(callback.message.chat.id)
     await callback.answer()
 
-    # Detect language from recent history
-    history = await get_history(callback.message.chat.id)
-    lang = "ru"
-    if history:
-        last_user = next((m["content"] for m in reversed(history) if m["role"] == "user"), "")
-        lang = detect_lang(last_user)
+    lang = await get_user_lang(callback.message.chat.id)
+    strings = await get_strings(lang)
 
-    s = get_strings(lang)
-    await callback.message.edit_text(
-        s["manager_closed"],
-    )
+    await callback.message.edit_text(strings["manager_closed"])
     await callback.message.answer(
-        s["manager_closed"],
-        reply_markup=action_buttons(lang),
+        strings["manager_closed"],
+        reply_markup=action_buttons(strings),
     )
 
 
@@ -289,11 +244,11 @@ async def handle_voice(message: types.Message, bot: Bot) -> None:
 
     text = await transcribe_voice(file_bytes.getvalue())
     if not text:
-        s = get_strings("ru")
-        await message.answer(s["voice_fail"], reply_markup=action_buttons("ru"))
+        strings = await get_strings("Russian")
+        await message.answer(strings["voice_fail"], reply_markup=action_buttons(strings))
         return
 
-    lang = detect_lang(text)
+    lang = await detect_language(text)
 
     await bot.send_chat_action(chat_id=message.chat.id, action=ChatAction.TYPING)
 
@@ -318,7 +273,7 @@ async def handle_message(message: types.Message, bot: Bot) -> None:
         await refresh_manager_mode(message.chat.id)
         return
 
-    lang = detect_lang(message.text)
+    lang = await detect_language(message.text)
 
     await bot.send_chat_action(chat_id=message.chat.id, action=ChatAction.TYPING)
 
@@ -344,5 +299,5 @@ async def handle_other(message: types.Message) -> None:
         await refresh_manager_mode(message.chat.id)
         return
 
-    s = get_strings("ru")
-    await message.answer(s["other"], reply_markup=action_buttons("ru"))
+    strings = await get_strings("Russian")
+    await message.answer(strings["other"], reply_markup=action_buttons(strings))
