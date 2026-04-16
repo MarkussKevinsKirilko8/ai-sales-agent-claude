@@ -6,7 +6,7 @@ from app.config.settings import settings
 
 logger = logging.getLogger(__name__)
 
-MANAGER_MODE_TTL = 300  # 5 minutes timeout
+MANAGER_MODE_TTL = 86400  # 24 hours timeout
 
 _redis = None
 
@@ -27,7 +27,7 @@ def _close_btn_key(chat_id: int) -> str:
 
 
 async def enable_manager_mode(chat_id: int):
-    """Enable manager mode for a chat. Expires after 5 minutes."""
+    """Enable manager mode for a chat. Expires after 24 hours."""
     r = await get_redis()
     await r.set(_key(chat_id), "1", ex=MANAGER_MODE_TTL)
     logger.info(f"Manager mode enabled for chat {chat_id}")
@@ -48,7 +48,7 @@ async def is_manager_mode(chat_id: int) -> bool:
 
 
 async def refresh_manager_mode(chat_id: int):
-    """Reset the 5-minute timeout (on each new message during manager mode)."""
+    """Reset the 24-hour timeout (on each new message during manager mode)."""
     r = await get_redis()
     if await r.exists(_key(chat_id)):
         await r.expire(_key(chat_id), MANAGER_MODE_TTL)

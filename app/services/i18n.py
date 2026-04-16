@@ -21,9 +21,9 @@ SOURCE_STRINGS = {
     "manager": "👤 Manager",
     "close": "❌ Close Manager Chat",
     "manager_connect": (
-        "Connecting you with a manager. Working hours: Mon-Fri 09:00-18:00 Moscow time.\n"
-        "Waiting for manager response. Chat will return to AI after 5 minutes of inactivity.\n"
-        "Type /close to end."
+        "Connecting you with a manager. Response time: up to 24 hours.\n"
+        "Working hours: Mon-Fri 09:00-18:00 Moscow time.\n"
+        "Type /close to end the manager chat at any time."
     ),
     "manager_closed": "Manager chat closed. You're now back with the AI assistant.",
     "manager_already": "You're already connected to a manager.",
@@ -46,8 +46,12 @@ async def get_redis():
     return _redis
 
 
+# Bump this when SOURCE_STRINGS change so cached translations get refreshed
+TRANSLATIONS_VERSION = 2
+
+
 def _cache_key(lang: str) -> str:
-    return f"i18n:{lang}"
+    return f"i18n:v{TRANSLATIONS_VERSION}:{lang}"
 
 
 async def _translate_strings(target_lang: str) -> dict:
