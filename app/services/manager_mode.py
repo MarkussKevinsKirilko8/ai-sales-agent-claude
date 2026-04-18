@@ -30,6 +30,7 @@ async def enable_manager_mode(chat_id: int):
     """Enable manager mode for a chat. Expires after 24 hours."""
     r = await get_redis()
     await r.set(_key(chat_id), "1", ex=MANAGER_MODE_TTL)
+    await r.delete(_msg_count_key(chat_id))
     logger.info(f"Manager mode enabled for chat {chat_id}")
 
 
@@ -38,6 +39,7 @@ async def disable_manager_mode(chat_id: int):
     r = await get_redis()
     await r.delete(_key(chat_id))
     await r.delete(_close_btn_key(chat_id))
+    await r.delete(_msg_count_key(chat_id))
     logger.info(f"Manager mode disabled for chat {chat_id}")
 
 
@@ -47,11 +49,21 @@ async def is_manager_mode(chat_id: int) -> bool:
     return await r.exists(_key(chat_id)) == 1
 
 
-async def refresh_manager_mode(chat_id: int):
-    """Reset the 24-hour timeout (on each new message during manager mode)."""
+def _msg_count_key(chat_id: int) -> str:
+    return f"manager_msg_count:{chat_id}"
+
+
+async def refresh_manager_mode(chat_id: int) -> int:
+    """Reset the 24-hour timeout and increment message count.
+    Returns the number of messages sent during this manager session.
+    """
     r = await get_redis()
     if await r.exists(_key(chat_id)):
         await r.expire(_key(chat_id), MANAGER_MODE_TTL)
+        count = await r.incr(_msg_count_key(chat_id))
+        await r.expire(_msg_count_key(chat_id), MANAGER_MODE_TTL)
+        return count
+    return 0
 
 
 async def save_close_button_id(chat_id: int, message_id: int):

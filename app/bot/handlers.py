@@ -271,7 +271,17 @@ async def handle_message(message: types.Message, bot: Bot) -> None:
         return
 
     if await is_manager_mode(message.chat.id):
-        await refresh_manager_mode(message.chat.id)
+        msg_count = await refresh_manager_mode(message.chat.id)
+        # Send reassurance on first message in manager mode
+        if msg_count == 1:
+            lang = await get_user_lang(message.chat.id, message.text)
+            strings = await get_strings(lang)
+            await message.answer(
+                strings.get("manager_waiting",
+                    "Ваше сообщение передано менеджеру. Ожидайте ответа в течение 24 часов. "
+                    "Напишите /close чтобы вернуться к AI-ассистенту."
+                ),
+            )
         return
 
     lang = await detect_language(message.text)

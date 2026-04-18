@@ -27,9 +27,14 @@ SOURCE_STRINGS = {
     ),
     "manager_closed": "Manager chat closed. You're now back with the AI assistant.",
     "manager_already": "You're already connected to a manager.",
+    "manager_waiting": (
+        "Your message has been sent to the manager. "
+        "Expect a response within 24 hours. "
+        "Type /close to return to the AI assistant."
+    ),
     "already_ai": "You're already chatting with the AI assistant.",
     "welcome": (
-        "👋 Welcome! I'm the AI Sales Assistant for Hilma Biocare products.\n\n"
+        "👋 Welcome! I'm the AI Sales Assistant for products in this shop.\n\n"
         "Ask me anything about products, availability, or pricing.\n\n"
         "🛒 Press <b>Shop</b> — to browse and order\n"
         "👤 Press <b>Manager</b> — to contact support"
@@ -47,7 +52,7 @@ async def get_redis():
 
 
 # Bump this when SOURCE_STRINGS change so cached translations get refreshed
-TRANSLATIONS_VERSION = 2
+TRANSLATIONS_VERSION = 3
 
 
 def _cache_key(lang: str) -> str:
