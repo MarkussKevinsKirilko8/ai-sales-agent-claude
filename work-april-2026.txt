@@ -1,0 +1,76 @@
+AI Sales Agent — Work Done April 2026
+======================================
+
+Starting point: Basic Telegram bot with Firecrawl scraping hilmabiocare.com,
+Claude AI responses, voice messages (Whisper), PostgreSQL + Redis + Docker.
+
+
+PRODUCT DATA & SCRAPING
+-----------------------
+- Switched from Firecrawl to Product API (techbz.fit) as primary data source — faster, more reliable, structured data, free
+- Added Russian product aliases (slang names from spreadsheet — трен, метан, тесто, дека, etc.) for better search
+- Added product images from API with display in chat
+- Added direct product links — Shop button opens specific product in mini app using ?page=product-details&code=XXX
+- Firecrawl commented out but kept as fallback
+
+
+AI AGENT IMPROVEMENTS
+---------------------
+- Switched from keyword-based search to Claude Haiku for intent detection (understands any language, typos, slang)
+- Added conversation history (Redis, last 10 messages) so Claude remembers context for follow-up questions
+- Added ambiguous product clarification — "есть дека?" now asks which product the user means instead of dumping results
+- Stricter product response format per sales team requirements: name, brand, dosage, price, stock status + Shop CTA only
+- Removed unnecessary usage/medical info from default responses — only shown when explicitly asked
+
+
+SALES SCRIPT (from team spreadsheet)
+-------------------------------------
+- Full sales behavior in system prompt: ordering flow, payment (card 10K+ RUB / crypto any amount), delivery (Post 1200 / EMS 3000, Russia only)
+- Discount flow: asks order amount — under 20K: "no current promos" / over 20K: transfer to manager
+- Delivery info cleaned: don't list SDEK, don't ask "what method?", don't mention warehouses
+- Brand info: Hilma Biocare (India) + Marten HGH (Germany)
+
+
+MULTILINGUAL SUPPORT
+--------------------
+- Built i18n service with on-the-fly translation via Haiku
+- All UI strings (buttons, messages) auto-translate to any language the user writes in
+- Translations cached in Redis — only translates once per language
+- Default language: Russian
+
+
+TELEGRAM BOT UI
+---------------
+- Added Shop inline button (opens mini app inside Telegram)
+- Added Manager inline button
+- Added Close Manager Chat inline button
+- Added /start welcome message (Russian default)
+- Added /close command as backup
+- Markdown-to-HTML formatting for Telegram (bold, italic, headers)
+- Link preview disabled on responses
+
+
+MANAGER HANDOFF SYSTEM
+----------------------
+- Manager mode: AI stops responding, CRM takes over
+- Manager triggered by button, text ("менеджер"), or Haiku detecting intent (any language/spelling)
+- AI-compressed conversation summary sent to manager Telegram group
+- 24-hour timeout on manager mode (auto-returns to AI)
+- Duplicate session prevention
+- Manager group created + integrated
+
+
+CRM INTEGRATION
+---------------
+- Built /api/manager-status API endpoint for CRM
+- CRM calls GET /api/manager-status?chat_id=XXX to know if user is talking to AI (false) or waiting for manager (true)
+- Port 8000 exposed + firewall configured
+
+
+DEPLOYMENT
+----------
+- Deployed to DigitalOcean droplet ($6/mo, Ubuntu 24.04, Frankfurt)
+- Docker Compose running 24/7 (app + PostgreSQL + Redis)
+- GitHub repo (private) for version control + easy deploys
+- Auto-sync with Product API every 6 hours
+- Migrated from shared n8n droplet to dedicated team droplet (46.101.226.20)
