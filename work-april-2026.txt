@@ -74,3 +74,25 @@ DEPLOYMENT
 - GitHub repo (private) for version control + easy deploys
 - Auto-sync with Product API every 6 hours
 - Migrated from shared n8n droplet to dedicated team droplet (46.101.226.20)
+
+
+SECURITY FIX
+------------
+- Fixed Redis and PostgreSQL exposed to the internet via Docker port mappings
+- Removed public port exposure — databases now only accessible internally between containers
+- DigitalOcean security warning resolved
+
+
+TEAM FEEDBACK ROUND (April 16-18)
+----------------------------------
+- Fixed bot inventing fake URLs/Telegram channels (e.g. @hilmabiocare_reviews) — strict rule: never generate any link
+- Changed bot identity from "Hilma Biocare assistant" to "assistant of this shop" — brand-neutral
+- Added multi-question handling — bot now answers all questions in one message, not just the last one
+- Fixed manager mode bottleneck — bot sends reassurance "Your message was sent to the manager" when user writes during manager mode
+- Standardized reviews response — always redirects to Shop product pages, never mentions external channels
+- Off-topic questions (politics, general knowledge) now redirected: "I help with products in this shop"
+- Tightened product response format to exactly 6 lines: name, brand, dosage, price, stock emoji, Shop CTA
+- Fixed duplicate product name (photo caption + text response)
+- Fixed discount question showing unrelated product info
+- Fixed /close command responding in wrong language
+- Manager mode timeout changed from 5 minutes to 24 hours

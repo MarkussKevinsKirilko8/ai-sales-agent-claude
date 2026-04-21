@@ -11,6 +11,11 @@ class Settings(BaseSettings):
     # OpenAI (Whisper)
     openai_api_key: str
 
+    # LLM provider: "anthropic" or "ollama"
+    llm_provider: str = "anthropic"
+    ollama_url: str = "http://localhost:11434"
+    ollama_model: str = "llama3.1:8b"
+
     # Firecrawl (fallback)
     firecrawl_api_key: str = ""
 

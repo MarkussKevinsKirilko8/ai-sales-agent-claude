@@ -3,6 +3,7 @@ import logging
 from dataclasses import dataclass, field
 
 import anthropic
+import httpx
 
 from app.config.settings import settings
 from app.database.queries import get_all_products, search_products, search_products_exact
@@ -10,6 +11,46 @@ from app.database.queries import get_all_products, search_products, search_produ
 logger = logging.getLogger(__name__)
 
 client = anthropic.AsyncAnthropic(api_key=settings.claude_api_key)
+
+
+async def _call_ollama(system: str, messages: list[dict], max_tokens: int = 1024) -> str:
+    """Call Ollama API for local LLM inference."""
+    # Build prompt from system + messages
+    prompt = f"System: {system}\n\n"
+    for msg in messages:
+        role = "User" if msg["role"] == "user" else "Assistant"
+        prompt += f"{role}: {msg['content']}\n\n"
+
+    async with httpx.AsyncClient(timeout=120.0) as http:
+        response = await http.post(
+            f"{settings.ollama_url}/api/generate",
+            json={
+                "model": settings.ollama_model,
+                "prompt": prompt,
+                "stream": False,
+                "options": {"num_predict": max_tokens},
+            },
+        )
+        response.raise_for_status()
+        return response.json().get("response", "")
+
+
+async def _call_anthropic(system: str, messages: list[dict], model: str = "claude-sonnet-4-20250514", max_tokens: int = 1024) -> str:
+    """Call Anthropic API."""
+    response = await client.messages.create(
+        model=model,
+        max_tokens=max_tokens,
+        system=system,
+        messages=messages,
+    )
+    return response.content[0].text
+
+
+async def call_llm(system: str, messages: list[dict], model: str = "claude-sonnet-4-20250514", max_tokens: int = 1024) -> str:
+    """Call the configured LLM provider."""
+    if settings.llm_provider == "ollama":
+        return await _call_ollama(system, messages, max_tokens)
+    return await _call_anthropic(system, messages, model, max_tokens)
 
 SYSTEM_PROMPT = """You are a sales support assistant for products in this online shop. Your goal is to help customers find products, answer questions, and guide them toward placing an order.
 
@@ -149,15 +190,16 @@ async def extract_product_names(user_message: str, chat_history: list[dict] = No
                 history_lines.append(f"{role}: {content}")
             context = "Recent conversation:\n" + "\n".join(history_lines) + "\n\n"
 
-        response = await client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=200,
+        raw_response = await call_llm(
+            system="",
             messages=[
                 {"role": "user", "content": f"{EXTRACT_PROMPT}\n\n{context}User message: {user_message}"}
             ],
+            model="claude-haiku-4-5-20251001",
+            max_tokens=200,
         )
 
-        raw = response.content[0].text.strip()
+        raw = raw_response.strip()
         if raw.startswith("```"):
             raw = raw.split("\n", 1)[-1]
             raw = raw.rsplit("```", 1)[0]
@@ -281,14 +323,11 @@ async def get_agent_response(user_message: str, chat_history: list[dict] = None)
             messages.extend(chat_history)
         messages.append({"role": "user", "content": user_message})
 
-        response = await client.messages.create(
-            model="claude-sonnet-4-20250514",
-            max_tokens=1024,
+        response_text = await call_llm(
             system=system,
             messages=messages,
+            max_tokens=1024,
         )
-
-        response_text = response.content[0].text
 
         # Show Shop button when response mentions products, ordering, or shop
         shop_keywords = ["shop", "Shop", "корзин", "магазин", "оформ", "заказ", "купить", "наличи", "цен", "price", "order", "available"]
