@@ -6,35 +6,39 @@ import anthropic
 import httpx
 
 from app.config.settings import settings
-from app.database.queries import get_all_products, search_products, search_products_exact
+from app.database.queries import search_products, search_products_exact
 
 logger = logging.getLogger(__name__)
 
 client = anthropic.AsyncAnthropic(api_key=settings.claude_api_key)
 
 
-async def _call_ollama(system: str, messages: list[dict], max_tokens: int = 1024) -> str:
+async def _call_ollama(system: str, messages: list[dict], max_tokens: int = 256,
+                       format: str | None = None) -> str:
     """Call Ollama API using /api/chat for better KV cache reuse."""
-    # Build chat messages format
     chat_messages = [{"role": "system", "content": system}]
     for msg in messages:
         chat_messages.append({"role": msg["role"], "content": msg["content"]})
 
+    body = {
+        "model": settings.ollama_model,
+        "messages": chat_messages,
+        "stream": False,
+        "think": False,
+        "keep_alive": -1,
+        "options": {
+            "num_predict": max_tokens,
+            "num_ctx": 8192,
+            "temperature": 0.3,
+        },
+    }
+    if format:
+        body["format"] = format
+
     async with httpx.AsyncClient(timeout=120.0) as http:
         response = await http.post(
             f"{settings.ollama_url}/api/chat",
-            json={
-                "model": settings.ollama_model,
-                "messages": chat_messages,
-                "stream": False,
-                "think": False,
-                "keep_alive": -1,
-                "options": {
-                    "num_predict": max_tokens,
-                    "num_ctx": 8192,
-                    "temperature": 0.3,
-                },
-            },
+            json=body,
         )
         response.raise_for_status()
         return response.json().get("message", {}).get("content", "")
@@ -51,10 +55,14 @@ async def _call_anthropic(system: str, messages: list[dict], model: str = "claud
     return response.content[0].text
 
 
-async def call_llm(system: str, messages: list[dict], model: str = "claude-sonnet-4-20250514", max_tokens: int = 1024) -> str:
-    """Call the configured LLM provider."""
+async def call_llm(system: str, messages: list[dict], model: str = "claude-sonnet-4-20250514",
+                    max_tokens: int = 1024, format: str | None = None) -> str:
+    """Call the configured LLM provider. Haiku always routes to Anthropic."""
+    # Haiku extraction always goes to Anthropic (cheap, fast, reliable JSON)
+    if model and "haiku" in model.lower():
+        return await _call_anthropic(system, messages, model, max_tokens)
     if settings.llm_provider == "ollama":
-        return await _call_ollama(system, messages, max_tokens)
+        return await _call_ollama(system, messages, max_tokens, format)
     return await _call_anthropic(system, messages, model, max_tokens)
 
 SYSTEM_PROMPT = """You are a sales support assistant for products in this online shop. Your goal is to help customers find products, answer questions, and guide them toward placing an order.
@@ -168,7 +176,7 @@ Examples:
 
 Return ONLY the JSON, nothing else."""
 
-MAX_CONTENT_LENGTH = 1500
+MAX_CONTENT_LENGTH = 300  # Keep short — bot only needs name, brand, dosage, price, stock
 
 
 @dataclass
@@ -285,19 +293,12 @@ async def build_product_context(user_message: str, chat_history: list[dict] = No
                     "url": product.url,
                 })
 
-    # If no relevant products found, send compact catalog
+    # If no relevant products found, don't dump full catalog — let LLM ask for clarification
     if not unique_products:
-        all_products = await get_all_products()
-        if not all_products:
-            return "\n[No products have been scraped yet. The database is empty.]", [], False
+        return "\n[No specific product identified in the query. Ask the user to clarify which product they mean.]", [], False
 
-        context_parts = ["\nFull product catalog (names only — ask for details on specific products):"]
-        for product in all_products:
-            context_parts.append(f"- {product.title} | {product.url}")
-        return "\n".join(context_parts), [], False
-
-    # Send detailed info for relevant products (max 10)
-    products_to_send = unique_products[:10]
+    # Send detailed info for relevant products (max 3 to reduce prefill time)
+    products_to_send = unique_products[:3]
     context_parts = []
     for product in products_to_send:
         content = product.content
@@ -332,7 +333,7 @@ async def get_agent_response(user_message: str, chat_history: list[dict] = None)
         response_text = await call_llm(
             system=system,
             messages=messages,
-            max_tokens=1024,
+            max_tokens=256,  # 6-line format doesn't need more
         )
 
         # Show Shop button when response mentions products, ordering, or shop
