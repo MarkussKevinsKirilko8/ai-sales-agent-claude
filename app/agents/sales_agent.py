@@ -176,7 +176,7 @@ Examples:
 
 Return ONLY the JSON, nothing else."""
 
-MAX_CONTENT_LENGTH = 300  # Keep short — bot only needs name, brand, dosage, price, stock
+MAX_CONTENT_LENGTH = 400  # Enough for name, brand, dosage, price, description
 
 
 @dataclass
@@ -333,7 +333,7 @@ async def get_agent_response(user_message: str, chat_history: list[dict] = None)
         response_text = await call_llm(
             system=system,
             messages=messages,
-            max_tokens=256,  # 6-line format doesn't need more
+            max_tokens=512,  # enough for 6-line format + multi-question + discount flow
         )
 
         # Show Shop button when response mentions products, ordering, or shop
