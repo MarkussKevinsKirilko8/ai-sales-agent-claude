@@ -191,8 +191,7 @@ async def extract_product_names(user_message: str, chat_history: list[dict] = No
                 history_lines.append(f"{role}: {content}")
             context = "Recent conversation:\n" + "\n".join(history_lines) + "\n\n"
 
-        # Always use Anthropic Haiku for extraction — local models can't do reliable JSON
-        raw_response = await _call_anthropic(
+        raw_response = await call_llm(
             system="",
             messages=[
                 {"role": "user", "content": f"{EXTRACT_PROMPT}\n\n{context}User message: {user_message}"}
