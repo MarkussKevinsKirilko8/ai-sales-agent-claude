@@ -1,18 +1,21 @@
 import logging
 import tempfile
 
-import openai
-
 from app.config.settings import settings
 
 logger = logging.getLogger(__name__)
 
-client = openai.AsyncOpenAI(api_key=settings.openai_api_key)
-
 
 async def transcribe_voice(file_bytes: bytes) -> str | None:
     """Transcribe voice message bytes using OpenAI Whisper."""
+    if not settings.openai_api_key:
+        logger.warning("No OpenAI API key — voice transcription unavailable")
+        return None
+
     try:
+        import openai
+        client = openai.AsyncOpenAI(api_key=settings.openai_api_key)
+
         with tempfile.NamedTemporaryFile(suffix=".ogg", delete=True) as tmp:
             tmp.write(file_bytes)
             tmp.flush()

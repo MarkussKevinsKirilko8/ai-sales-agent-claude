@@ -5,11 +5,11 @@ class Settings(BaseSettings):
     # Telegram
     telegram_bot_token: str
 
-    # Claude API
-    claude_api_key: str
+    # Claude API (optional if using ollama)
+    claude_api_key: str = ""
 
     # OpenAI (Whisper)
-    openai_api_key: str
+    openai_api_key: str = ""
 
     # LLM provider: "anthropic" or "ollama"
     llm_provider: str = "anthropic"

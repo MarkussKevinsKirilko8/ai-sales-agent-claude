@@ -1,7 +1,6 @@
 import io
 import logging
 
-import anthropic
 from aiogram import Bot, F, Router, types
 from aiogram.enums import ChatAction
 from aiogram.filters import Command, CommandStart
@@ -30,8 +29,6 @@ router = Router()
 logger = logging.getLogger(__name__)
 
 SHOP_URL = "https://razvedka_rf_bot.miniapp-rf.app"
-
-_claude = anthropic.AsyncAnthropic(api_key=settings.claude_api_key)
 
 
 def action_buttons(strings: dict, shop_url: str = SHOP_URL) -> InlineKeyboardMarkup:
@@ -73,9 +70,9 @@ async def summarize_conversation(history: list[dict], lang: str = "Russian") -> 
     )
 
     try:
-        response = await _claude.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=300,
+        from app.agents.sales_agent import call_llm
+        response_text = await call_llm(
+            system="",
             messages=[{
                 "role": "user",
                 "content": (
@@ -85,8 +82,9 @@ async def summarize_conversation(history: list[dict], lang: str = "Russian") -> 
                     f"Conversation:\n{conversation}"
                 ),
             }],
+            max_tokens=300,
         )
-        return response.content[0].text
+        return response_text
     except Exception as e:
         logger.error(f"Summary generation failed: {e}")
         return "Не удалось создать сводку."
@@ -308,6 +306,13 @@ async def handle_message(message: types.Message, bot: Bot) -> None:
     response = await get_agent_response(message.text, chat_history=history)
 
     if response.wants_manager:
+        await handle_manager_start(message, bot, lang)
+        return
+
+    # Check if LLM response triggers manager transfer (discount over 20K)
+    if "MANAGER_TRANSFER:" in response.text:
+        response.text = response.text.replace("MANAGER_TRANSFER: ", "").replace("MANAGER_TRANSFER:", "")
+        await message.answer(response.text)
         await handle_manager_start(message, bot, lang)
         return
 

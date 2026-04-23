@@ -10,7 +10,7 @@ from app.database.queries import search_products, search_products_exact
 
 logger = logging.getLogger(__name__)
 
-client = anthropic.AsyncAnthropic(api_key=settings.claude_api_key)
+client = anthropic.AsyncAnthropic(api_key=settings.claude_api_key) if settings.claude_api_key else None
 
 
 async def _call_ollama(system: str, messages: list[dict], max_tokens: int = 256,
@@ -59,8 +59,6 @@ async def call_llm(system: str, messages: list[dict], model: str = "claude-sonne
                     max_tokens: int = 1024, format: str | None = None) -> str:
     """Call the configured LLM provider. Haiku always routes to Anthropic."""
     # Haiku extraction always goes to Anthropic (cheap, fast, reliable JSON)
-    if model and "haiku" in model.lower():
-        return await _call_anthropic(system, messages, model, max_tokens)
     if settings.llm_provider == "ollama":
         return await _call_ollama(system, messages, max_tokens, format)
     return await _call_anthropic(system, messages, model, max_tokens)
@@ -105,9 +103,24 @@ STOCK STATUS:
 
 AMBIGUOUS PRODUCT QUERIES:
 When a user uses a slang/short name that could mean multiple products, ASK FOR CLARIFICATION:
-- "есть дека?" → "Вы имеете в виду Нандролон Деканоат или Тестостерон Ундеканоат?"
-- "есть тесто?" → "Какой именно тестостерон? Энантат, ципионат, пропионат, ундеканоат или сустанон?"
-- "есть трен?" → "Какой именно? Тренболон Ацетат, Энантат, Микс или Параболан?"
+- "дека" → "Вы имеете в виду Нандролон Деканоат или Тестостерон Ундеканоат?"
+- "тесто/тест" → "Какой именно тестостерон? Энантат, ципионат, пропионат, ундеканоат или сустанон?"
+- "трен/трэн/треник" → "Какой именно? Тренболон Ацетат, Энантат, Микс или Параболан?"
+- "маст/мастер" → "Какой именно мастерон? Пропионат или Энантат?"
+
+SLANG → PRODUCT MAPPING (single product, no clarification needed):
+- "метан/меташка" → Methandienone
+- "болд/болдик" → Boldenone Undecylenate
+- "винни" → Stanozolol (tabs or injection — clarify which)
+- "прови/провик" → Mesterolone
+- "окси" → Oxymetholone
+- "анавар" → Oxandrolone
+- "суст" → Sustanon
+- "гормонка/гр" → HGH (clarify: Liquid, Powder, or PEN?)
+- "клен" → Clenbuterol
+- "турик" → Turinabol
+- "примка/прима" → Primobolan (clarify: tabs or injection?)
+- "гало" → Halotestin
 
 REVIEWS:
 - When asked about reviews ("отзывы", "reviews"): "Отзывы можно посмотреть в нашем магазине на странице каждого товара. Нажмите кнопку Магазин."
@@ -127,7 +140,7 @@ When user asks about discounts ("скидка", "discount", "можно скид
 - Do NOT show any product info. Just ask about the order amount.
 1. Ask ONLY: "На какую сумму вы планируете сделать заказ?"
 2. Under 20,000 RUB: "Периодически у нас бывают акции, к сожалению в данный момент ничего не проводим."
-3. 20,000 RUB or more: "Дождитесь ответа менеджера — будет быстрее, если вы пришлёте список товаров и количество."
+3. 20,000 RUB or more: respond with EXACTLY: "MANAGER_TRANSFER: Дождитесь ответа менеджера — будет быстрее, если вы пришлёте список товаров и количество." (The MANAGER_TRANSFER prefix triggers automatic manager handoff.)
 
 PAYMENT:
 - Russian bank card: minimum 10,000 RUB
