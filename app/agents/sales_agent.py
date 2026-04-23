@@ -14,7 +14,7 @@ client = anthropic.AsyncAnthropic(api_key=settings.claude_api_key)
 
 
 async def call_llm(system: str, messages: list[dict], model: str = "claude-sonnet-4-20250514",
-                    max_tokens: int = 1024, format: str | None = None) -> str:
+                    max_tokens: int = 1024) -> str:
     """Call the Anthropic API."""
     response = await client.messages.create(
         model=model,
@@ -150,7 +150,7 @@ Examples:
 
 Return ONLY the JSON, nothing else."""
 
-MAX_CONTENT_LENGTH = 400  # Enough for name, brand, dosage, price, description
+MAX_CONTENT_LENGTH = 1500
 
 
 @dataclass
@@ -271,8 +271,8 @@ async def build_product_context(user_message: str, chat_history: list[dict] = No
     if not unique_products:
         return "\n[No specific product identified in the query. Ask the user to clarify which product they mean.]", [], False
 
-    # Send detailed info for relevant products (max 3 to reduce prefill time)
-    products_to_send = unique_products[:3]
+    # Send detailed info for relevant products (max 10)
+    products_to_send = unique_products[:10]
     context_parts = []
     for product in products_to_send:
         content = product.content
@@ -307,7 +307,7 @@ async def get_agent_response(user_message: str, chat_history: list[dict] = None)
         response_text = await call_llm(
             system=system,
             messages=messages,
-            max_tokens=512,  # enough for 6-line format + multi-question + discount flow
+            max_tokens=1024,
         )
 
         # Show Shop button when response mentions products, ordering, or shop
