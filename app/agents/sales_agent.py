@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 client = anthropic.AsyncAnthropic(api_key=settings.claude_api_key)
 
 
-async def call_llm(system: str, messages: list[dict], model: str = "claude-sonnet-4-20250514",
+async def call_llm(system: str, messages: list[dict], model: str = "claude-sonnet-4-6",
                     max_tokens: int = 1024) -> str:
     """Call the Anthropic API."""
     response = await client.messages.create(
