@@ -146,9 +146,14 @@ def _build_product_content(product: dict) -> str:
     price_disc = product.get("price_with_discount")
     if price_disc:
         parts.append(f"Discounted price: {price_disc}")
-    balance = product.get("balance")
-    if balance is not None:
-        parts.append(f"Stock: {balance}")
+    balance_raw = product.get("balance")
+    in_stock = False
+    if balance_raw not in (None, False, "", "0", 0):
+        try:
+            in_stock = int(balance_raw) > 0
+        except (ValueError, TypeError):
+            in_stock = bool(balance_raw)
+    parts.append(f"STOCK STATUS: {'IN STOCK' if in_stock else 'OUT OF STOCK'}")
 
     # Descriptions
     short_desc = _get_all_langs(product.get("Short description", ""))

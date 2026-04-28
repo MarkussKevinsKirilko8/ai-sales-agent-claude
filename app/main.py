@@ -16,12 +16,13 @@ logger = logging.getLogger(__name__)
 
 async def scrape_loop():
     """Run scrapers on startup and then every N hours."""
-    # Small delay to let the bot start first
     await asyncio.sleep(5)
+    first_run = True
     while True:
         try:
-            count = await run_scrapers()
+            count = await run_scrapers(force=not first_run)
             logger.info(f"Scrape complete: {count} products")
+            first_run = False
         except Exception as e:
             logger.error(f"Scrape failed: {e}")
         await asyncio.sleep(settings.scrape_interval_hours * 3600)

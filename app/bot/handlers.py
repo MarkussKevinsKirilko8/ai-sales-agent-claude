@@ -181,6 +181,10 @@ async def handle_start(message: types.Message, bot: Bot) -> None:
     if message.chat.type in ("group", "supergroup"):
         return
 
+    # /start always resets state — exit manager mode if active
+    if await is_manager_mode(message.chat.id):
+        await disable_manager_mode(message.chat.id)
+
     # Remove the menu button next to chat input
     try:
         await bot.set_chat_menu_button(menu_button=MenuButtonDefault())
@@ -249,6 +253,14 @@ async def handle_voice(message: types.Message, bot: Bot) -> None:
 
     if await is_manager_mode(message.chat.id):
         await refresh_manager_mode(message.chat.id)
+        strings = await get_strings("Russian")
+        await message.answer(
+            strings.get("manager_waiting",
+                "Ваше сообщение передано менеджеру. Ожидайте ответа в течение 24 часов. "
+                "Напишите /close чтобы вернуться к AI-ассистенту."
+            ),
+            reply_markup=close_button(strings),
+        )
         return
 
     await bot.send_chat_action(chat_id=message.chat.id, action=ChatAction.TYPING)
@@ -285,17 +297,16 @@ async def handle_message(message: types.Message, bot: Bot) -> None:
         return
 
     if await is_manager_mode(message.chat.id):
-        msg_count = await refresh_manager_mode(message.chat.id)
-        # Send reassurance on first message in manager mode
-        if msg_count == 1:
-            lang = await get_user_lang(message.chat.id, message.text)
-            strings = await get_strings(lang)
-            await message.answer(
-                strings.get("manager_waiting",
-                    "Ваше сообщение передано менеджеру. Ожидайте ответа в течение 24 часов. "
-                    "Напишите /close чтобы вернуться к AI-ассистенту."
-                ),
-            )
+        await refresh_manager_mode(message.chat.id)
+        lang = await get_user_lang(message.chat.id, message.text)
+        strings = await get_strings(lang)
+        await message.answer(
+            strings.get("manager_waiting",
+                "Ваше сообщение передано менеджеру. Ожидайте ответа в течение 24 часов. "
+                "Напишите /close чтобы вернуться к AI-ассистенту."
+            ),
+            reply_markup=close_button(strings),
+        )
         return
 
     lang = await detect_language(message.text)
@@ -329,6 +340,14 @@ async def handle_other(message: types.Message) -> None:
 
     if await is_manager_mode(message.chat.id):
         await refresh_manager_mode(message.chat.id)
+        strings = await get_strings("Russian")
+        await message.answer(
+            strings.get("manager_waiting",
+                "Ваше сообщение передано менеджеру. Ожидайте ответа в течение 24 часов. "
+                "Напишите /close чтобы вернуться к AI-ассистенту."
+            ),
+            reply_markup=close_button(strings),
+        )
         return
 
     strings = await get_strings("Russian")
