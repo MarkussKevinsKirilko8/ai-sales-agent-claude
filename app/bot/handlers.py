@@ -91,13 +91,16 @@ async def summarize_conversation(history: list[dict], lang: str = "Russian") -> 
         return "Не удалось создать сводку."
 
 
-async def handle_manager_start(message: types.Message, bot: Bot, lang: str = "Russian"):
+async def handle_manager_start(message: types.Message, bot: Bot, lang: str = "Russian", user: types.User | None = None):
     await enable_manager_mode(message.chat.id)
 
     history = await get_history(message.chat.id)
     summary = await summarize_conversation(history, lang)
 
-    user = message.from_user
+    # When invoked from a callback (Менеджер button), message.from_user is the bot.
+    # The caller must pass `user=callback.from_user` for the real customer identity.
+    if user is None:
+        user = message.from_user
     user_info = f"{user.full_name}"
     if user.username:
         user_info += f" (@{user.username})"
@@ -236,7 +239,7 @@ async def handle_manager_callback(callback: types.CallbackQuery, bot: Bot) -> No
         return
     await callback.answer()
 
-    await handle_manager_start(callback.message, bot, lang)
+    await handle_manager_start(callback.message, bot, lang, user=callback.from_user)
 
 
 @router.callback_query(F.data == "close_manager")
