@@ -22,6 +22,7 @@ from app.services.manager_mode import (
     disable_manager_mode,
     is_manager_mode,
     refresh_manager_mode,
+    save_manager_summary,
 )
 from app.services.voice import transcribe_voice
 
@@ -100,6 +101,13 @@ async def handle_manager_start(message: types.Message, bot: Bot, lang: str = "Ru
     user_info = f"{user.full_name}"
     if user.username:
         user_info += f" (@{user.username})"
+
+    await save_manager_summary(
+        message.chat.id,
+        summary=summary,
+        user_name=user.full_name or "",
+        username=user.username or "",
+    )
 
     manager_message = (
         f"📋 <b>Запрос на менеджера</b>\n\n"

@@ -68,7 +68,21 @@ async def trigger_scrape():
 
 @app.get("/api/manager-status")
 async def manager_status(chat_id: int):
-    """Check if a chat is in manager mode. Used by CRM to filter messages."""
-    from app.services.manager_mode import is_manager_mode
+    """Check if a chat is in manager mode. Used by CRM to filter messages.
+
+    When manager_mode is true, also returns the handoff summary, user name,
+    and username so the CRM can show it as the first message.
+    """
+    from app.services.manager_mode import is_manager_mode, get_manager_summary
+
     mode = await is_manager_mode(chat_id)
-    return {"chat_id": chat_id, "manager_mode": mode}
+    response = {"chat_id": chat_id, "manager_mode": mode}
+
+    if mode:
+        summary_data = await get_manager_summary(chat_id)
+        if summary_data:
+            response["summary"] = summary_data.get("summary", "")
+            response["user_name"] = summary_data.get("user_name", "")
+            response["username"] = summary_data.get("username", "")
+
+    return response

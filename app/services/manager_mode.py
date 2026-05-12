@@ -1,3 +1,4 @@
+import json
 import logging
 
 import redis.asyncio as aioredis
@@ -26,6 +27,10 @@ def _close_btn_key(chat_id: int) -> str:
     return f"manager_close_btn:{chat_id}"
 
 
+def _summary_key(chat_id: int) -> str:
+    return f"manager_summary:{chat_id}"
+
+
 async def enable_manager_mode(chat_id: int):
     """Enable manager mode for a chat. Expires after 24 hours."""
     r = await get_redis()
@@ -40,7 +45,34 @@ async def disable_manager_mode(chat_id: int):
     await r.delete(_key(chat_id))
     await r.delete(_close_btn_key(chat_id))
     await r.delete(_msg_count_key(chat_id))
+    await r.delete(_summary_key(chat_id))
     logger.info(f"Manager mode disabled for chat {chat_id}")
+
+
+async def save_manager_summary(chat_id: int, summary: str, user_name: str = "", username: str = ""):
+    """Save the handoff summary so the CRM can fetch it via the API."""
+    r = await get_redis()
+    payload = json.dumps({
+        "summary": summary,
+        "user_name": user_name,
+        "username": username,
+    }, ensure_ascii=False)
+    await r.set(_summary_key(chat_id), payload, ex=MANAGER_MODE_TTL)
+
+
+async def get_manager_summary(chat_id: int) -> dict | None:
+    """Get the saved summary for the CRM."""
+    r = await get_redis()
+    raw = await r.get(_summary_key(chat_id))
+    if not raw:
+        return None
+    try:
+        if isinstance(raw, bytes):
+            raw = raw.decode("utf-8")
+        return json.loads(raw)
+    except (json.JSONDecodeError, UnicodeDecodeError) as e:
+        logger.error(f"Failed to parse manager summary for {chat_id}: {e}")
+        return None
 
 
 async def is_manager_mode(chat_id: int) -> bool:
