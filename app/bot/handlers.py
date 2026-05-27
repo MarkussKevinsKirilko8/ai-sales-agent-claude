@@ -14,6 +14,8 @@ from aiogram.types import (
 
 from app.agents.sales_agent import AgentResponse, get_agent_response
 from app.config.settings import settings
+from app.database.queries import mark_user_seen
+from app.services.bot_start_webhook import schedule_bot_start_notification
 from app.services.chat_history import add_message, get_history
 from app.services.formatting import markdown_to_telegram_html
 from app.services.i18n import detect_language, get_strings
@@ -192,6 +194,9 @@ async def handle_start(message: types.Message, bot: Bot) -> None:
     if message.chat.type in ("group", "supergroup"):
         return
 
+    # First-time gate runs BEFORE the reply (atomic; a double-tap can't double-fire)
+    is_new_user = await mark_user_seen(message.from_user.id)
+
     # /start always resets state — exit manager mode if active
     if await is_manager_mode(message.chat.id):
         await disable_manager_mode(message.chat.id)
@@ -208,6 +213,10 @@ async def handle_start(message: types.Message, bot: Bot) -> None:
         parse_mode="HTML",
         reply_markup=action_buttons(strings),
     )
+
+    # Notify the fleet service in the background (only on the user's first /start)
+    if is_new_user:
+        schedule_bot_start_notification(message.from_user)
 
 
 @router.message(Command("close"))

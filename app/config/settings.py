@@ -11,6 +11,9 @@ class Settings(BaseSettings):
     # OpenAI (Whisper)
     openai_api_key: str = ""
 
+    # "New user joined" notification webhook (fleet-wide notification service)
+    bot_start_webhook_secret: str = ""
+
     # Firecrawl (fallback)
     firecrawl_api_key: str = ""
 

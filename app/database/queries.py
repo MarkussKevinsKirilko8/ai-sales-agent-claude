@@ -1,7 +1,24 @@
 from sqlalchemy import and_, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-from app.database.models import ScrapedPage
+from app.database.models import ScrapedPage, SeenUser
 from app.database.session import async_session
+
+
+async def mark_user_seen(telegram_user_id: int) -> bool:
+    """Record that a user has pressed /start. Returns True ONLY the first time
+    this user is inserted (atomic INSERT ... ON CONFLICT DO NOTHING), so a
+    /start double-tap or repeat can never fire the new-user webhook twice.
+    """
+    async with async_session() as session:
+        stmt = (
+            pg_insert(SeenUser)
+            .values(telegram_user_id=telegram_user_id)
+            .on_conflict_do_nothing(index_elements=["telegram_user_id"])
+        )
+        result = await session.execute(stmt)
+        await session.commit()
+        return result.rowcount == 1
 
 
 async def get_all_products() -> list[ScrapedPage]:
