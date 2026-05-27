@@ -189,6 +189,12 @@ Examples:
 - "переведи на менеджера" → {"products": [], "is_specific": false, "wants_manager": true}
 - "Hi, what can you help me with?" → {"products": [], "is_specific": false, "wants_manager": false}
 
+IMPORTANT: Discount, price, and delivery questions are NOT manager requests. wants_manager stays false — those flows are handled separately. Examples:
+- "можно скидку?" → {"products": [], "is_specific": false, "wants_manager": false}
+- "можно скидку на 5000" → {"products": [], "is_specific": false, "wants_manager": false}
+- "скидка на 30000" → {"products": [], "is_specific": false, "wants_manager": false}
+- "доставляете в Москву?" → {"products": [], "is_specific": false, "wants_manager": false}
+
 Return ONLY the JSON, nothing else."""
 
 MAX_CONTENT_LENGTH = 1500
