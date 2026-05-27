@@ -259,6 +259,17 @@ async def find_relevant_products(user_message: str, chat_history: list[dict] = N
     """
     product_names, is_specific, wants_manager = await extract_product_names(user_message, chat_history)
 
+    # Safety net: discount/price questions must NEVER trigger a manager handoff via
+    # extraction. Haiku sometimes over-infers "discount → manager". The discount flow
+    # is handled deterministically by the main model (under 20K → no promo, 20K+ →
+    # MANAGER_TRANSFER prefix). This guard overrides a false-positive from Haiku.
+    if wants_manager:
+        msg_lower = user_message.lower()
+        discount_kw = ["скидк", "скидку", "скидка", "discount", "акци", "промокод", "promo", "распродаж"]
+        if any(kw in msg_lower for kw in discount_kw):
+            logger.info("Overriding wants_manager=True for discount question")
+            wants_manager = False
+
     if wants_manager:
         return [], False, True
 
