@@ -12,7 +12,6 @@ from aiogram.types import (
 )
 
 from app.agents.sales_agent import AgentResponse, get_agent_response
-from app.config.settings import settings
 from app.database.queries import mark_user_seen
 from app.services import bot_shops
 from app.services.bot_start_webhook import schedule_bot_start_notification
@@ -125,10 +124,9 @@ async def handle_manager_start(message: types.Message, bot: Bot, lang: str = "Ru
     # The caller must pass `user=callback.from_user` for the real customer identity.
     if user is None:
         user = message.from_user
-    user_info = f"{user.full_name}"
-    if user.username:
-        user_info += f" (@{user.username})"
 
+    # Summary is consumed by the CRM via /api/manager-status (the old Telegram
+    # manager group predates the CRM and is no longer used).
     await save_manager_summary(
         bot.id,
         message.chat.id,
@@ -136,22 +134,6 @@ async def handle_manager_start(message: types.Message, bot: Bot, lang: str = "Ru
         user_name=user.full_name or "",
         username=user.username or "",
     )
-
-    manager_message = (
-        f"📋 <b>Запрос на менеджера</b>\n\n"
-        f"👤 Клиент: {user_info}\n"
-        f"🆔 Chat ID: <code>{message.chat.id}</code>\n\n"
-        f"📝 <b>Сводка:</b>\n{summary}"
-    )
-
-    try:
-        await bot.send_message(
-            chat_id=settings.manager_group_id,
-            text=manager_message,
-            parse_mode="HTML",
-        )
-    except Exception as e:
-        logger.error(f"Failed to send to manager group: {e}")
 
     strings = await get_strings(lang)
     await message.answer(

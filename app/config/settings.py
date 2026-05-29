@@ -25,7 +25,9 @@ class Settings(BaseSettings):
     # OpenAI (Whisper)
     openai_api_key: str = ""
 
-    # "New user joined" notification webhook (fleet-wide notification service)
+    # "New user joined" notification webhook (fleet-wide notification service).
+    # URL + secret set on host; webhook skips if either is unset.
+    bot_start_webhook_url: str = ""
     bot_start_webhook_secret: str = ""
 
     # Firecrawl (fallback)
@@ -45,9 +47,6 @@ class Settings(BaseSettings):
     # Redis
     redis_host: str = "redis"
     redis_port: int = 6379
-
-    # Manager group chat ID
-    manager_group_id: int = -5179724701
 
     # OCTO CRM integration (bidirectional, HMAC-signed). Values set on host.
     crm_base_url: str = ""

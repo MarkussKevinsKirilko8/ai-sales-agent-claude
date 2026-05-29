@@ -16,7 +16,6 @@ from app.config.settings import settings
 
 logger = logging.getLogger(__name__)
 
-WEBHOOK_URL = "https://app-notification.x8x.pro/functions/v1/bot-start-event"
 BOT_NAME = "Sales Agent Claude"
 
 # Keep strong references to in-flight tasks so they aren't garbage-collected
@@ -27,8 +26,8 @@ _background_tasks: set[asyncio.Task] = set()
 async def notify_bot_start(user: types.User) -> None:
     """POST the new-user payload. Logs and swallows every error; never raises."""
     secret = settings.bot_start_webhook_secret
-    if not secret:
-        logger.info("BOT_START_WEBHOOK_SECRET not set — skipping new-user notification")
+    if not (secret and settings.bot_start_webhook_url):
+        logger.info("BOT_START_WEBHOOK_* not configured — skipping new-user notification")
         return
 
     payload = {
@@ -42,7 +41,7 @@ async def notify_bot_start(user: types.User) -> None:
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.post(
-                WEBHOOK_URL,
+                settings.bot_start_webhook_url,
                 json=payload,
                 headers={"Authorization": f"Bearer {secret}"},
             )
