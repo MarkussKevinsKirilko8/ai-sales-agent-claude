@@ -2,8 +2,14 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    # Telegram
+    # Telegram — bot 1 (test, no shop) + bot 2 (production, has mini-app shop)
     telegram_bot_token: str
+    telegram_bot_token_2: str = ""
+
+    @property
+    def telegram_tokens(self) -> list[str]:
+        """All configured bot tokens, in order."""
+        return [t for t in (self.telegram_bot_token, self.telegram_bot_token_2) if t]
 
     # Claude API
     claude_api_key: str

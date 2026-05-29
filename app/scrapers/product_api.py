@@ -250,9 +250,10 @@ class ProductAPIScraper:
 
             content = _build_product_content(product)
 
-            # Build shop URL using product code
+            # Store a bot-agnostic RELATIVE deep link; the handler prepends each
+            # bot's own shop base URL at send time (no hardcoded shop domain).
             code = product.get("code", "")
-            shop_url = f"https://razvedka_rf_bot.miniapp-rf.app/?page=product-details&code={code}" if code else product.get("URL", "")
+            shop_url = f"?page=product-details&code={code}" if code else (product.get("URL") or f"#{product.get('id', '')}")
 
             products.append({
                 "source": self.source,

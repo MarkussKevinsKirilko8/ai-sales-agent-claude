@@ -8,13 +8,13 @@ from aiogram.types import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     LinkPreviewOptions,
-    MenuButtonDefault,
     WebAppInfo,
 )
 
 from app.agents.sales_agent import AgentResponse, get_agent_response
 from app.config.settings import settings
 from app.database.queries import mark_user_seen
+from app.services import bot_shops
 from app.services.bot_start_webhook import schedule_bot_start_notification
 from app.services.chat_history import add_message, get_history
 from app.services.formatting import markdown_to_telegram_html
@@ -31,22 +31,48 @@ from app.services.voice import transcribe_voice
 router = Router()
 logger = logging.getLogger(__name__)
 
-SHOP_URL = "https://razvedka_rf_bot.miniapp-rf.app"
+MANAGER_WAITING_FALLBACK = (
+    "Ваше сообщение передано менеджеру. Ожидайте ответа в течение 24 часов. "
+    "Напишите /close чтобы вернуться к AI-ассистенту."
+)
 
 
-def action_buttons(strings: dict, shop_url: str = SHOP_URL) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text=strings["shop"], web_app=WebAppInfo(url=shop_url)),
-            InlineKeyboardButton(text=strings["manager"], callback_data="request_manager"),
-        ]
-    ])
+def resolve_shop_url(bot_id: int, product_rel_url: str | None = None) -> str | None:
+    """The shop link for a given bot. None if the bot has no mini-app shop.
+    A relative product deep link (`?page=...`) is appended to the bot's base.
+    """
+    base = bot_shops.shop_url_for_bot(bot_id)
+    if not base:
+        return None
+    if product_rel_url and product_rel_url.startswith("?"):
+        return base.rstrip("/") + "/" + product_rel_url
+    return base
+
+
+def action_buttons(strings: dict, shop_url: str | None = None) -> InlineKeyboardMarkup:
+    """Manager button always; Shop button only when the bot has a shop URL."""
+    row = []
+    if shop_url:
+        row.append(InlineKeyboardButton(text=strings["shop"], web_app=WebAppInfo(url=shop_url)))
+    row.append(InlineKeyboardButton(text=strings["manager"], callback_data="request_manager"))
+    return InlineKeyboardMarkup(inline_keyboard=[row])
 
 
 def close_button(strings: dict) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=strings["close"], callback_data="close_manager")]
     ])
+
+
+async def _manager_waiting_notice(message: types.Message, bot: Bot):
+    """Re-show the 'sent to manager' notice + Close button on every message."""
+    await refresh_manager_mode(bot.id, message.chat.id)
+    lang = await get_user_lang(message.chat.id, getattr(message, "text", "") or "")
+    strings = await get_strings(lang)
+    await message.answer(
+        strings.get("manager_waiting", MANAGER_WAITING_FALLBACK),
+        reply_markup=close_button(strings),
+    )
 
 
 async def get_user_lang(chat_id: int, current_text: str = "") -> str:
@@ -94,7 +120,7 @@ async def summarize_conversation(history: list[dict], lang: str = "Russian") -> 
 
 
 async def handle_manager_start(message: types.Message, bot: Bot, lang: str = "Russian", user: types.User | None = None):
-    await enable_manager_mode(message.chat.id)
+    await enable_manager_mode(bot.id, message.chat.id)
 
     history = await get_history(message.chat.id)
     summary = await summarize_conversation(history, lang)
@@ -108,6 +134,7 @@ async def handle_manager_start(message: types.Message, bot: Bot, lang: str = "Ru
         user_info += f" (@{user.username})"
 
     await save_manager_summary(
+        bot.id,
         message.chat.id,
         summary=summary,
         user_name=user.full_name or "",
@@ -174,12 +201,11 @@ async def send_response(
 
     strings = await get_strings(lang)
 
-    # If exactly 1 specific product, link Shop button directly to its page
-    shop_url = SHOP_URL
+    # Link the Shop button to the specific product page when exactly 1 matched
+    product_rel = None
     if response.product_images and len(response.product_images) == 1:
-        product_url = response.product_images[0].get("url")
-        if product_url:
-            shop_url = product_url
+        product_rel = response.product_images[0].get("url")
+    shop_url = resolve_shop_url(bot.id, product_rel)
 
     await message.answer(
         formatted_text,
@@ -198,20 +224,14 @@ async def handle_start(message: types.Message, bot: Bot) -> None:
     is_new_user = await mark_user_seen(message.from_user.id)
 
     # /start always resets state — exit manager mode if active
-    if await is_manager_mode(message.chat.id):
-        await disable_manager_mode(message.chat.id)
-
-    # Remove the menu button next to chat input
-    try:
-        await bot.set_chat_menu_button(menu_button=MenuButtonDefault())
-    except Exception:
-        pass
+    if await is_manager_mode(bot.id, message.chat.id):
+        await disable_manager_mode(bot.id, message.chat.id)
 
     strings = await get_strings("Russian")
     await message.answer(
         strings["welcome"],
         parse_mode="HTML",
-        reply_markup=action_buttons(strings),
+        reply_markup=action_buttons(strings, shop_url=resolve_shop_url(bot.id)),
     )
 
     # Notify the fleet service in the background (only on the user's first /start)
@@ -220,7 +240,7 @@ async def handle_start(message: types.Message, bot: Bot) -> None:
 
 
 @router.message(Command("close"))
-async def handle_close_command(message: types.Message) -> None:
+async def handle_close_command(message: types.Message, bot: Bot) -> None:
     if message.chat.type in ("group", "supergroup"):
         return
 
@@ -228,11 +248,11 @@ async def handle_close_command(message: types.Message) -> None:
     lang = await get_user_lang(message.chat.id)
     strings = await get_strings(lang)
 
-    if await is_manager_mode(message.chat.id):
-        await disable_manager_mode(message.chat.id)
+    if await is_manager_mode(bot.id, message.chat.id):
+        await disable_manager_mode(bot.id, message.chat.id)
         await message.answer(
             strings["manager_closed"],
-            reply_markup=action_buttons(strings),
+            reply_markup=action_buttons(strings, shop_url=resolve_shop_url(bot.id)),
         )
     else:
         await message.answer(strings["already_ai"])
@@ -243,7 +263,7 @@ async def handle_manager_callback(callback: types.CallbackQuery, bot: Bot) -> No
     lang = await get_user_lang(callback.message.chat.id)
     strings = await get_strings(lang)
 
-    if await is_manager_mode(callback.message.chat.id):
+    if await is_manager_mode(bot.id, callback.message.chat.id):
         await callback.answer(strings["manager_already"])
         return
     await callback.answer()
@@ -252,8 +272,8 @@ async def handle_manager_callback(callback: types.CallbackQuery, bot: Bot) -> No
 
 
 @router.callback_query(F.data == "close_manager")
-async def handle_close_manager(callback: types.CallbackQuery) -> None:
-    await disable_manager_mode(callback.message.chat.id)
+async def handle_close_manager(callback: types.CallbackQuery, bot: Bot) -> None:
+    await disable_manager_mode(bot.id, callback.message.chat.id)
     await callback.answer()
 
     lang = await get_user_lang(callback.message.chat.id)
@@ -262,7 +282,7 @@ async def handle_close_manager(callback: types.CallbackQuery) -> None:
     await callback.message.edit_text(strings["manager_closed"])
     await callback.message.answer(
         strings["manager_closed"],
-        reply_markup=action_buttons(strings),
+        reply_markup=action_buttons(strings, shop_url=resolve_shop_url(bot.id)),
     )
 
 
@@ -271,16 +291,8 @@ async def handle_voice(message: types.Message, bot: Bot) -> None:
     if message.chat.type in ("group", "supergroup"):
         return
 
-    if await is_manager_mode(message.chat.id):
-        await refresh_manager_mode(message.chat.id)
-        strings = await get_strings("Russian")
-        await message.answer(
-            strings.get("manager_waiting",
-                "Ваше сообщение передано менеджеру. Ожидайте ответа в течение 24 часов. "
-                "Напишите /close чтобы вернуться к AI-ассистенту."
-            ),
-            reply_markup=close_button(strings),
-        )
+    if await is_manager_mode(bot.id, message.chat.id):
+        await _manager_waiting_notice(message, bot)
         return
 
     await bot.send_chat_action(chat_id=message.chat.id, action=ChatAction.TYPING)
@@ -292,7 +304,7 @@ async def handle_voice(message: types.Message, bot: Bot) -> None:
     text = await transcribe_voice(file_bytes.getvalue())
     if not text:
         strings = await get_strings("Russian")
-        await message.answer(strings["voice_fail"], reply_markup=action_buttons(strings))
+        await message.answer(strings["voice_fail"], reply_markup=action_buttons(strings, shop_url=resolve_shop_url(bot.id)))
         return
 
     lang = await detect_language(text)
@@ -303,30 +315,31 @@ async def handle_voice(message: types.Message, bot: Bot) -> None:
     response = await get_agent_response(text, chat_history=history)
 
     await add_message(message.chat.id, "user", text)
-    await add_message(message.chat.id, "assistant", response.text)
-
     await message.answer(f"🎤 <i>{text}</i>")
+
+    if response.wants_manager:
+        await handle_manager_start(message, bot, lang)
+        return
+
+    if "MANAGER_TRANSFER:" in response.text:
+        response.text = response.text.replace("MANAGER_TRANSFER: ", "").replace("MANAGER_TRANSFER:", "")
+        await message.answer(response.text)
+        await handle_manager_start(message, bot, lang)
+        return
+
+    await add_message(message.chat.id, "assistant", response.text)
     await send_response(message, bot, response, lang)
 
 
 @router.message(F.text)
 async def handle_message(message: types.Message, bot: Bot) -> None:
-    logger.info(f"Message from chat_id={message.chat.id}, type={message.chat.type}")
+    logger.info(f"Message from chat_id={message.chat.id}, type={message.chat.type}, bot={bot.id}")
 
     if message.chat.type in ("group", "supergroup"):
         return
 
-    if await is_manager_mode(message.chat.id):
-        await refresh_manager_mode(message.chat.id)
-        lang = await get_user_lang(message.chat.id, message.text)
-        strings = await get_strings(lang)
-        await message.answer(
-            strings.get("manager_waiting",
-                "Ваше сообщение передано менеджеру. Ожидайте ответа в течение 24 часов. "
-                "Напишите /close чтобы вернуться к AI-ассистенту."
-            ),
-            reply_markup=close_button(strings),
-        )
+    if await is_manager_mode(bot.id, message.chat.id):
+        await _manager_waiting_notice(message, bot)
         return
 
     lang = await detect_language(message.text)
@@ -335,6 +348,8 @@ async def handle_message(message: types.Message, bot: Bot) -> None:
 
     history = await get_history(message.chat.id)
     response = await get_agent_response(message.text, chat_history=history)
+
+    await add_message(message.chat.id, "user", message.text)
 
     if response.wants_manager:
         await handle_manager_start(message, bot, lang)
@@ -347,28 +362,18 @@ async def handle_message(message: types.Message, bot: Bot) -> None:
         await handle_manager_start(message, bot, lang)
         return
 
-    await add_message(message.chat.id, "user", message.text)
     await add_message(message.chat.id, "assistant", response.text)
-
     await send_response(message, bot, response, lang)
 
 
 @router.message()
-async def handle_other(message: types.Message) -> None:
+async def handle_other(message: types.Message, bot: Bot) -> None:
     if message.chat.type in ("group", "supergroup"):
         return
 
-    if await is_manager_mode(message.chat.id):
-        await refresh_manager_mode(message.chat.id)
-        strings = await get_strings("Russian")
-        await message.answer(
-            strings.get("manager_waiting",
-                "Ваше сообщение передано менеджеру. Ожидайте ответа в течение 24 часов. "
-                "Напишите /close чтобы вернуться к AI-ассистенту."
-            ),
-            reply_markup=close_button(strings),
-        )
+    if await is_manager_mode(bot.id, message.chat.id):
+        await _manager_waiting_notice(message, bot)
         return
 
     strings = await get_strings("Russian")
-    await message.answer(strings["other"], reply_markup=action_buttons(strings))
+    await message.answer(strings["other"], reply_markup=action_buttons(strings, shop_url=resolve_shop_url(bot.id)))

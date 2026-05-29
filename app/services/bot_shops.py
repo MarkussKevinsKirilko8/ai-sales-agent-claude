@@ -1,44 +1,71 @@
-"""Bot identity cache.
+"""Per-bot identity + shop registry.
 
-The bot's @username is read from Telegram via getMe at startup (never
-hardcoded) — the CRM integration keys events by bot_username. This project
-runs a single bot token; the helpers are structured so multi-bot routing can
-be added later without changing call sites.
+This project runs multiple Telegram bots on one codebase. For each bot we cache,
+read from Telegram at startup (never hardcoded):
+  - username (via getMe) — used to key CRM events
+  - shop base URL (via getChatMenuButton) — the bot's mini-app, if it has one
+
+A bot with no mini-app menu button (e.g. the test bot) has shop_url = None, and
+the UI shows no Shop button for it.
 """
 import logging
+from dataclasses import dataclass
 
 from aiogram import Bot
 
 logger = logging.getLogger(__name__)
 
-_primary_username: str | None = None
-_primary_bot_id: int | None = None
+
+@dataclass
+class BotInfo:
+    bot_id: int
+    username: str
+    shop_url: str | None
+
+
+# bot_id -> BotInfo
+_registry: dict[int, BotInfo] = {}
 
 
 async def init_bot_identity(bot: Bot) -> None:
-    """Fetch and cache the bot's username + id. Call once at startup."""
-    global _primary_username, _primary_bot_id
+    """Fetch and cache a bot's username + shop URL. Call once per bot at startup."""
     me = await bot.get_me()
-    _primary_username = me.username
-    _primary_bot_id = me.id
-    logger.info(f"Bot identity cached: @{_primary_username} (id={_primary_bot_id})")
+    shop_url = None
+    try:
+        menu = await bot.get_chat_menu_button()
+        # aiogram returns a MenuButtonWebApp when a mini-app is configured
+        web_app = getattr(menu, "web_app", None)
+        if web_app and getattr(web_app, "url", None):
+            shop_url = web_app.url
+    except Exception as e:
+        logger.warning(f"Could not read menu button for @{me.username}: {e}")
+
+    _registry[bot.id] = BotInfo(bot_id=bot.id, username=me.username, shop_url=shop_url)
+    logger.info(f"Bot registered: @{me.username} (id={bot.id}) shop={shop_url or 'none'}")
 
 
-def get_primary_username() -> str | None:
-    return _primary_username
+def username_for_bot(bot_id: int) -> str | None:
+    info = _registry.get(bot_id)
+    return info.username if info else None
 
 
-def get_primary_bot_id() -> int | None:
-    return _primary_bot_id
+def shop_url_for_bot(bot_id: int) -> str | None:
+    info = _registry.get(bot_id)
+    return info.shop_url if info else None
 
 
-def matches_primary(bot_username: str | None) -> bool:
-    """True if the given username refers to this bot. Empty/None → primary
-    (back-compat: CRM may omit bot_username for single-bot deployments).
-    Case-insensitive, leading @ optional.
-    """
+def bot_id_for_username(bot_username: str | None) -> int | None:
+    """Resolve a CRM-supplied bot_username to a bot_id. Empty/None → the first
+    registered bot (back-compat for single-bot CRM calls). Case-insensitive,
+    leading @ optional. Unknown username → None."""
     if not bot_username:
-        return True
-    if not _primary_username:
-        return False
-    return bot_username.lstrip("@").lower() == _primary_username.lower()
+        return next(iter(_registry), None)
+    target = bot_username.lstrip("@").lower()
+    for info in _registry.values():
+        if info.username and info.username.lower() == target:
+            return info.bot_id
+    return None
+
+
+def all_bot_ids() -> list[int]:
+    return list(_registry)

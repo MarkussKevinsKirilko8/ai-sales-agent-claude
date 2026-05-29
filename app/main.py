@@ -6,7 +6,7 @@ import redis.asyncio as aioredis
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from app.bot.setup import bot, dp
+from app.bot.setup import bots, bots_by_id, dp
 from app.config.settings import settings
 from app.database.session import init_db
 from app.scrapers.service import run_scrapers
@@ -60,14 +60,16 @@ async def lifespan(app: FastAPI):
     await init_db()
     app.state.redis = aioredis.from_url(settings.redis_url)
 
-    # Cache the bot's @username (used to key CRM events) — never hardcoded
-    try:
-        await bot_shops.init_bot_identity(bot)
-    except Exception as e:
-        logger.error(f"Failed to read bot identity at startup: {e}")
+    # Cache each bot's @username + shop URL (used to key CRM events / build the
+    # Shop button) — read from Telegram, never hardcoded
+    for b in bots:
+        try:
+            await bot_shops.init_bot_identity(b)
+        except Exception as e:
+            logger.error(f"Failed to read identity for bot {b.id}: {e}")
 
-    # Run bot polling in background so it doesn't block FastAPI
-    polling_task = asyncio.create_task(dp.start_polling(bot, handle_signals=False))
+    # Poll all bots in one dispatcher (same handlers serve every bot)
+    polling_task = asyncio.create_task(dp.start_polling(*bots, handle_signals=False))
 
     # Run scraper on a schedule (initial + every N hours)
     scrape_task = asyncio.create_task(scrape_loop())
@@ -83,7 +85,8 @@ async def lifespan(app: FastAPI):
     # Shutdown
     dp.shutdown.set()
     polling_task.cancel()
-    await bot.session.close()
+    for b in bots:
+        await b.session.close()
     await app.state.redis.close()
 
 
@@ -106,7 +109,7 @@ async def trigger_scrape():
 async def manager_mode_inbound(request: Request):
     """CRM → AI: a human operator stepped in (or stepped out). Verify HMAC,
     flip the flag WITHOUT echoing back to the CRM, and notify the user."""
-    from app.bot.handlers import action_buttons, close_button, get_user_lang
+    from app.bot.handlers import action_buttons, close_button, get_user_lang, resolve_shop_url
     from app.services.i18n import get_strings
 
     correlation_id = request.headers.get("x-correlation-id", "")
@@ -137,30 +140,32 @@ async def manager_mode_inbound(request: Request):
         return JSONResponse(status_code=400, content={"error": "manager_mode must be bool"})
 
     bot_username = body.get("bot_username")
-    if not bot_shops.matches_primary(bot_username):
+    bot_id = bot_shops.bot_id_for_username(bot_username)
+    if bot_id is None:
         return JSONResponse(status_code=400, content={"error": f"unknown bot_username: {bot_username}"})
+    target_bot = bots_by_id[bot_id]
 
     # Origin = CRM, so suppress the outbound echo
     if manager_mode:
-        await enable_manager_mode(chat_id, notify_crm=False)
+        await enable_manager_mode(bot_id, chat_id, notify_crm=False)
     else:
-        await disable_manager_mode(chat_id, notify_crm=False)
+        await disable_manager_mode(bot_id, chat_id, notify_crm=False)
 
-    # Notify the user (with an inline close button on takeover)
+    # Notify the user via the correct bot (inline close button on takeover)
     try:
         lang = await get_user_lang(chat_id)
         strings = await get_strings(lang)
         if manager_mode:
-            await bot.send_message(
+            await target_bot.send_message(
                 chat_id=chat_id,
                 text=strings["manager_connect"],
                 reply_markup=close_button(strings),
             )
         else:
-            await bot.send_message(
+            await target_bot.send_message(
                 chat_id=chat_id,
                 text=strings["manager_closed"],
-                reply_markup=action_buttons(strings),
+                reply_markup=action_buttons(strings, shop_url=resolve_shop_url(bot_id)),
             )
     except Exception as e:
         logger.error(f"Failed to notify user {chat_id} of manager-mode change: {e}")
@@ -169,19 +174,24 @@ async def manager_mode_inbound(request: Request):
 
 
 @app.get("/api/manager-status")
-async def manager_status(chat_id: int):
+async def manager_status(chat_id: int, bot_username: str | None = None):
     """Check if a chat is in manager mode. Used by CRM to filter messages.
 
+    bot_username selects which bot (defaults to the first registered bot).
     When manager_mode is true, also returns the handoff summary, user name,
     and username so the CRM can show it as the first message.
     """
     from app.services.manager_mode import is_manager_mode, get_manager_summary
 
-    mode = await is_manager_mode(chat_id)
+    bot_id = bot_shops.bot_id_for_username(bot_username)
+    if bot_id is None:
+        return JSONResponse(status_code=400, content={"error": f"unknown bot_username: {bot_username}"})
+
+    mode = await is_manager_mode(bot_id, chat_id)
     response = {"chat_id": chat_id, "manager_mode": mode}
 
     if mode:
-        summary_data = await get_manager_summary(chat_id)
+        summary_data = await get_manager_summary(bot_id, chat_id)
         if summary_data:
             response["summary"] = summary_data.get("summary", "")
             response["user_name"] = summary_data.get("user_name", "")
