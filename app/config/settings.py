@@ -35,6 +35,11 @@ class Settings(BaseSettings):
     # Manager group chat ID
     manager_group_id: int = -5179724701
 
+    # OCTO CRM integration (bidirectional, HMAC-signed). Values set on host.
+    crm_base_url: str = ""
+    octo_api_key: str = ""
+    octo_secret: str = ""
+
     # Sync schedule (hours between API syncs) — 6 = every 6 hours
     scrape_interval_hours: int = 6
 
