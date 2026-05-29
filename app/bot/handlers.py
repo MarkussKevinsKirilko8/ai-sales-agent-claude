@@ -31,12 +31,6 @@ from app.services.voice import transcribe_voice
 router = Router()
 logger = logging.getLogger(__name__)
 
-MANAGER_WAITING_FALLBACK = (
-    "Ваше сообщение передано менеджеру. Ожидайте ответа в течение 24 часов. "
-    "Напишите /close чтобы вернуться к AI-ассистенту."
-)
-
-
 def resolve_shop_url(bot_id: int, product_rel_url: str | None = None) -> str | None:
     """The shop link for a given bot. None if the bot has no mini-app shop.
     A relative product deep link (`?page=...`) is appended to the bot's base.
@@ -49,30 +43,32 @@ def resolve_shop_url(bot_id: int, product_rel_url: str | None = None) -> str | N
     return base
 
 
-def action_buttons(strings: dict, shop_url: str | None = None) -> InlineKeyboardMarkup:
-    """Manager button always; Shop button only when the bot has a shop URL."""
+def action_buttons(strings: dict, shop_url: str | None = None, show_manager: bool = True) -> InlineKeyboardMarkup | None:
+    """Shop button only when the bot has a shop URL; Manager button only when
+    show_manager. Returns None if neither (Telegram rejects empty keyboards)."""
     row = []
     if shop_url:
         row.append(InlineKeyboardButton(text=strings["shop"], web_app=WebAppInfo(url=shop_url)))
-    row.append(InlineKeyboardButton(text=strings["manager"], callback_data="request_manager"))
+    if show_manager:
+        row.append(InlineKeyboardButton(text=strings["manager"], callback_data="request_manager"))
+    if not row:
+        return None
     return InlineKeyboardMarkup(inline_keyboard=[row])
+
+
+def main_keyboard(strings: dict, bot_id: int, product_rel: str | None = None) -> InlineKeyboardMarkup | None:
+    """Per-bot main keyboard: shop URL + manager button gated by bot config."""
+    return action_buttons(
+        strings,
+        shop_url=resolve_shop_url(bot_id, product_rel),
+        show_manager=bot_shops.manager_enabled_for_bot(bot_id),
+    )
 
 
 def close_button(strings: dict) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=strings["close"], callback_data="close_manager")]
     ])
-
-
-async def _manager_waiting_notice(message: types.Message, bot: Bot):
-    """Re-show the 'sent to manager' notice + Close button on every message."""
-    await refresh_manager_mode(bot.id, message.chat.id)
-    lang = await get_user_lang(message.chat.id, getattr(message, "text", "") or "")
-    strings = await get_strings(lang)
-    await message.answer(
-        strings.get("manager_waiting", MANAGER_WAITING_FALLBACK),
-        reply_markup=close_button(strings),
-    )
 
 
 async def get_user_lang(chat_id: int, current_text: str = "") -> str:
@@ -205,13 +201,12 @@ async def send_response(
     product_rel = None
     if response.product_images and len(response.product_images) == 1:
         product_rel = response.product_images[0].get("url")
-    shop_url = resolve_shop_url(bot.id, product_rel)
 
     await message.answer(
         formatted_text,
         parse_mode="HTML",
         link_preview_options=LinkPreviewOptions(is_disabled=True),
-        reply_markup=action_buttons(strings, shop_url=shop_url),
+        reply_markup=main_keyboard(strings, bot.id, product_rel),
     )
 
 
@@ -231,7 +226,7 @@ async def handle_start(message: types.Message, bot: Bot) -> None:
     await message.answer(
         strings["welcome"],
         parse_mode="HTML",
-        reply_markup=action_buttons(strings, shop_url=resolve_shop_url(bot.id)),
+        reply_markup=main_keyboard(strings, bot.id),
     )
 
     # Notify the fleet service in the background (only on the user's first /start)
@@ -252,7 +247,7 @@ async def handle_close_command(message: types.Message, bot: Bot) -> None:
         await disable_manager_mode(bot.id, message.chat.id)
         await message.answer(
             strings["manager_closed"],
-            reply_markup=action_buttons(strings, shop_url=resolve_shop_url(bot.id)),
+            reply_markup=main_keyboard(strings, bot.id),
         )
     else:
         await message.answer(strings["already_ai"])
@@ -282,7 +277,7 @@ async def handle_close_manager(callback: types.CallbackQuery, bot: Bot) -> None:
     await callback.message.edit_text(strings["manager_closed"])
     await callback.message.answer(
         strings["manager_closed"],
-        reply_markup=action_buttons(strings, shop_url=resolve_shop_url(bot.id)),
+        reply_markup=main_keyboard(strings, bot.id),
     )
 
 
@@ -292,7 +287,8 @@ async def handle_voice(message: types.Message, bot: Bot) -> None:
         return
 
     if await is_manager_mode(bot.id, message.chat.id):
-        await _manager_waiting_notice(message, bot)
+        # In manager mode the bot stays silent; just keep the session alive.
+        await refresh_manager_mode(bot.id, message.chat.id)
         return
 
     await bot.send_chat_action(chat_id=message.chat.id, action=ChatAction.TYPING)
@@ -304,7 +300,7 @@ async def handle_voice(message: types.Message, bot: Bot) -> None:
     text = await transcribe_voice(file_bytes.getvalue())
     if not text:
         strings = await get_strings("Russian")
-        await message.answer(strings["voice_fail"], reply_markup=action_buttons(strings, shop_url=resolve_shop_url(bot.id)))
+        await message.answer(strings["voice_fail"], reply_markup=main_keyboard(strings, bot.id))
         return
 
     lang = await detect_language(text)
@@ -339,7 +335,8 @@ async def handle_message(message: types.Message, bot: Bot) -> None:
         return
 
     if await is_manager_mode(bot.id, message.chat.id):
-        await _manager_waiting_notice(message, bot)
+        # In manager mode the bot stays silent; just keep the session alive.
+        await refresh_manager_mode(bot.id, message.chat.id)
         return
 
     lang = await detect_language(message.text)
@@ -372,8 +369,9 @@ async def handle_other(message: types.Message, bot: Bot) -> None:
         return
 
     if await is_manager_mode(bot.id, message.chat.id):
-        await _manager_waiting_notice(message, bot)
+        # In manager mode the bot stays silent; just keep the session alive.
+        await refresh_manager_mode(bot.id, message.chat.id)
         return
 
     strings = await get_strings("Russian")
-    await message.answer(strings["other"], reply_markup=action_buttons(strings, shop_url=resolve_shop_url(bot.id)))
+    await message.answer(strings["other"], reply_markup=main_keyboard(strings, bot.id))

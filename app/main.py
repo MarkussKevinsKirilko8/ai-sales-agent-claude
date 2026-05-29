@@ -109,7 +109,7 @@ async def trigger_scrape():
 async def manager_mode_inbound(request: Request):
     """CRM → AI: a human operator stepped in (or stepped out). Verify HMAC,
     flip the flag WITHOUT echoing back to the CRM, and notify the user."""
-    from app.bot.handlers import action_buttons, close_button, get_user_lang, resolve_shop_url
+    from app.bot.handlers import close_button, get_user_lang, main_keyboard
     from app.services.i18n import get_strings
 
     correlation_id = request.headers.get("x-correlation-id", "")
@@ -165,7 +165,7 @@ async def manager_mode_inbound(request: Request):
             await target_bot.send_message(
                 chat_id=chat_id,
                 text=strings["manager_closed"],
-                reply_markup=action_buttons(strings, shop_url=resolve_shop_url(bot_id)),
+                reply_markup=main_keyboard(strings, bot_id),
             )
     except Exception as e:
         logger.error(f"Failed to notify user {chat_id} of manager-mode change: {e}")

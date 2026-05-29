@@ -6,10 +6,18 @@ class Settings(BaseSettings):
     telegram_bot_token: str
     telegram_bot_token_2: str = ""
 
+    # Bots that are AI-only: no Manager button, no CRM events (comma-separated
+    # usernames, @ optional). Defaults to the test bot.
+    ai_only_bots: str = "sales_ai_agent_claude_bot"
+
     @property
     def telegram_tokens(self) -> list[str]:
         """All configured bot tokens, in order."""
         return [t for t in (self.telegram_bot_token, self.telegram_bot_token_2) if t]
+
+    @property
+    def ai_only_bot_set(self) -> set[str]:
+        return {b.strip().lstrip("@").lower() for b in self.ai_only_bots.split(",") if b.strip()}
 
     # Claude API
     claude_api_key: str

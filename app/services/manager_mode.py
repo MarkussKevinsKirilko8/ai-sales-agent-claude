@@ -60,7 +60,7 @@ async def enable_manager_mode(bot_id: int, chat_id: int, notify_crm: bool = True
     await r.delete(_msg_count_key(bot_id, chat_id))
     await r.zadd(EXPIRY_ZSET, {_member(bot_id, chat_id): time.time() + MANAGER_MODE_TTL})
     logger.info(f"Manager mode enabled bot={bot_id} chat={chat_id} (notify_crm={notify_crm})")
-    if notify_crm:
+    if notify_crm and bot_shops.manager_enabled_for_bot(bot_id):
         schedule_engagement(chat_id, True, bot_shops.username_for_bot(bot_id))
 
 
@@ -73,7 +73,7 @@ async def disable_manager_mode(bot_id: int, chat_id: int, notify_crm: bool = Tru
     await r.delete(_summary_key(bot_id, chat_id))
     await r.zrem(EXPIRY_ZSET, _member(bot_id, chat_id))
     logger.info(f"Manager mode disabled bot={bot_id} chat={chat_id} (notify_crm={notify_crm})")
-    if notify_crm:
+    if notify_crm and bot_shops.manager_enabled_for_bot(bot_id):
         schedule_engagement(chat_id, False, bot_shops.username_for_bot(bot_id))
 
 
