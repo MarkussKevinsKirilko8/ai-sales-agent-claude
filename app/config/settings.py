@@ -99,7 +99,9 @@ class Settings(BaseSettings):
     def redis_url(self) -> str:
         return f"redis://{self.redis_host}:{self.redis_port}"
 
-    model_config = {"env_file": ".env"}
+    # extra="ignore" so undeclared env vars (like the dynamically-scanned
+    # TELEGRAM_BOT_TOKEN_2/3/…) don't trigger Pydantic validation errors.
+    model_config = {"env_file": ".env", "extra": "ignore"}
 
 
 settings = Settings()
