@@ -229,6 +229,12 @@ async def handle_start(message: types.Message, bot: Bot) -> None:
     # First-time gate runs BEFORE the reply (atomic; a double-tap can't double-fire)
     is_new_user = await mark_user_seen(message.from_user.id)
 
+    # For opt-in bots: if this is the user's FIRST contact (no prior opt-in
+    # acknowledgement), treat them as a pre-existing customer — show only the
+    # opt-in prompt, NOT the AI welcome. Otherwise the user gets two messages.
+    if await _maybe_opt_in_intercept(message, bot):
+        return
+
     # /start always resets state — exit manager mode if active
     if await is_manager_mode(bot.id, message.chat.id):
         await disable_manager_mode(bot.id, message.chat.id)
