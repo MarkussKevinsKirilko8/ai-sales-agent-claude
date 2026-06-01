@@ -2,11 +2,11 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    # Telegram — bot 1 (test, no shop) + bot 2 (production, has mini-app shop) +
-    # bot 3 (a previously-existing bot getting the AI added — opt-in flow).
+    # Telegram bot tokens (slot 1 required; 2-4 optional).
     telegram_bot_token: str
     telegram_bot_token_2: str = ""
     telegram_bot_token_3: str = ""
+    telegram_bot_token_4: str = ""
 
     # Bots that are AI-only: no Manager button, no CRM events (comma-separated
     # usernames, @ optional). Defaults to the test bot.
@@ -22,7 +22,12 @@ class Settings(BaseSettings):
     def telegram_tokens(self) -> list[str]:
         """All configured bot tokens, in order."""
         return [
-            t for t in (self.telegram_bot_token, self.telegram_bot_token_2, self.telegram_bot_token_3)
+            t for t in (
+                self.telegram_bot_token,
+                self.telegram_bot_token_2,
+                self.telegram_bot_token_3,
+                self.telegram_bot_token_4,
+            )
             if t
         ]
 
