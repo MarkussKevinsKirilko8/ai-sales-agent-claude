@@ -68,8 +68,16 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.error(f"Failed to read identity for bot {b.id}: {e}")
 
-    # Poll all bots in one dispatcher (same handlers serve every bot)
-    polling_task = asyncio.create_task(dp.start_polling(*bots, handle_signals=False))
+    # Poll all bots in one dispatcher (same handlers serve every bot).
+    # drop_pending_updates=True is non-negotiable for the opt-in flow: existing
+    # customers of a pre-existing bot may have sent /start or messages weeks
+    # before we deployed the AI. Telegram queues those updates for ~24h. Without
+    # this flag, the bot would replay every queued /start on startup, triggering
+    # the opt-in prompt out of the blue for users mid-conversation with a human
+    # manager. With it, only fresh interactions after this startup are handled.
+    polling_task = asyncio.create_task(
+        dp.start_polling(*bots, handle_signals=False, drop_pending_updates=True)
+    )
 
     # Run scraper on a schedule (initial + every N hours)
     scrape_task = asyncio.create_task(scrape_loop())
