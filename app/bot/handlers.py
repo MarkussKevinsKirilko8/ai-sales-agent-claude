@@ -12,7 +12,7 @@ from aiogram.types import (
 )
 
 from app.agents.sales_agent import AgentResponse, get_agent_response
-from app.database.queries import mark_user_seen
+from app.database.queries import mark_opt_in_seen, mark_user_seen
 from app.services import bot_shops
 from app.services.bot_start_webhook import schedule_bot_start_notification
 from app.services.chat_history import add_message, get_history
@@ -68,6 +68,35 @@ def close_button(strings: dict) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=strings["close"], callback_data="close_manager")]
     ])
+
+
+def opt_in_button(strings: dict) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=strings["opt_in_button"], callback_data="switch_to_ai")]
+    ])
+
+
+async def _maybe_opt_in_intercept(message: types.Message, bot: Bot) -> bool:
+    """For "opt-in" bots (existed before the AI was added): the FIRST non-/start
+    interaction with an unrecognized user is treated as an existing customer.
+    Put them in manager mode + send the one-time "AI added — tap to switch"
+    prompt. Returns True if the message was handled here.
+
+    Gated by bot_shops.opt_in_for_bot — no effect on other bots.
+    """
+    if not bot_shops.opt_in_for_bot(bot.id):
+        return False
+    if await is_manager_mode(bot.id, message.chat.id):
+        return False  # already in manager mode; the silent refresh branch handles it
+    is_first_contact = await mark_opt_in_seen(bot.id, message.from_user.id)
+    if not is_first_contact:
+        return False  # prompt already shown once; AI mode from here on
+    # First non-/start touch on an opt-in bot → assume existing customer.
+    # enable_manager_mode fires CRM=true (idempotent if CRM already has them).
+    await enable_manager_mode(bot.id, message.chat.id)
+    strings = await get_strings("Russian")
+    await message.answer(strings["opt_in_message"], reply_markup=opt_in_button(strings))
+    return True
 
 
 async def get_user_lang(chat_id: int, current_text: str = "") -> str:
@@ -248,6 +277,19 @@ async def handle_manager_callback(callback: types.CallbackQuery, bot: Bot) -> No
     await handle_manager_start(callback.message, bot, lang, user=callback.from_user)
 
 
+@router.callback_query(F.data == "switch_to_ai")
+async def handle_switch_to_ai(callback: types.CallbackQuery, bot: Bot) -> None:
+    """User on an opt-in bot tapped "Switch to AI" → leave manager mode."""
+    if await is_manager_mode(bot.id, callback.message.chat.id):
+        await disable_manager_mode(bot.id, callback.message.chat.id)
+    await callback.answer()
+
+    lang = await get_user_lang(callback.message.chat.id)
+    strings = await get_strings(lang)
+    # Remove the inline button by editing the original message
+    await callback.message.edit_text(strings["opt_in_confirmed"])
+
+
 @router.callback_query(F.data == "close_manager")
 async def handle_close_manager(callback: types.CallbackQuery, bot: Bot) -> None:
     await disable_manager_mode(bot.id, callback.message.chat.id)
@@ -266,6 +308,9 @@ async def handle_close_manager(callback: types.CallbackQuery, bot: Bot) -> None:
 @router.message(F.voice)
 async def handle_voice(message: types.Message, bot: Bot) -> None:
     if message.chat.type in ("group", "supergroup"):
+        return
+
+    if await _maybe_opt_in_intercept(message, bot):
         return
 
     if await is_manager_mode(bot.id, message.chat.id):
@@ -316,6 +361,9 @@ async def handle_message(message: types.Message, bot: Bot) -> None:
     if message.chat.type in ("group", "supergroup"):
         return
 
+    if await _maybe_opt_in_intercept(message, bot):
+        return
+
     if await is_manager_mode(bot.id, message.chat.id):
         # In manager mode the bot stays silent; just keep the session alive.
         await refresh_manager_mode(bot.id, message.chat.id)
@@ -348,6 +396,9 @@ async def handle_message(message: types.Message, bot: Bot) -> None:
 @router.message()
 async def handle_other(message: types.Message, bot: Bot) -> None:
     if message.chat.type in ("group", "supergroup"):
+        return
+
+    if await _maybe_opt_in_intercept(message, bot):
         return
 
     if await is_manager_mode(bot.id, message.chat.id):

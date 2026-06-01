@@ -2,22 +2,37 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    # Telegram — bot 1 (test, no shop) + bot 2 (production, has mini-app shop)
+    # Telegram — bot 1 (test, no shop) + bot 2 (production, has mini-app shop) +
+    # bot 3 (a previously-existing bot getting the AI added — opt-in flow).
     telegram_bot_token: str
     telegram_bot_token_2: str = ""
+    telegram_bot_token_3: str = ""
 
     # Bots that are AI-only: no Manager button, no CRM events (comma-separated
     # usernames, @ optional). Defaults to the test bot.
     ai_only_bots: str = "sales_ai_agent_claude_bot"
 
+    # Bots that had existing users BEFORE we added the AI. For these, an
+    # unrecognized user's FIRST non-/start interaction is treated as an existing
+    # customer in manager mode + an "AI added — tap to switch" prompt
+    # (comma-separated usernames, @ optional).
+    opt_in_bots: str = ""
+
     @property
     def telegram_tokens(self) -> list[str]:
         """All configured bot tokens, in order."""
-        return [t for t in (self.telegram_bot_token, self.telegram_bot_token_2) if t]
+        return [
+            t for t in (self.telegram_bot_token, self.telegram_bot_token_2, self.telegram_bot_token_3)
+            if t
+        ]
 
     @property
     def ai_only_bot_set(self) -> set[str]:
         return {b.strip().lstrip("@").lower() for b in self.ai_only_bots.split(",") if b.strip()}
+
+    @property
+    def opt_in_bot_set(self) -> set[str]:
+        return {b.strip().lstrip("@").lower() for b in self.opt_in_bots.split(",") if b.strip()}
 
     # Claude API
     claude_api_key: str

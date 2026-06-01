@@ -20,6 +20,20 @@ class SeenUser(Base):
     first_seen = Column(DateTime, default=datetime.utcnow)
 
 
+class OptInAcknowledged(Base):
+    """Tracks the FIRST non-/start interaction per (bot, user) for opt-in bots.
+
+    Separate from seen_users so opt-in bots' tracking is bot-scoped without
+    changing the seen_users semantic the other bots rely on. Lives in Postgres
+    so it survives redeploys (otherwise every user would re-see the prompt).
+    """
+    __tablename__ = "opt_in_acknowledged"
+
+    bot_id = Column(BigInteger, primary_key=True, autoincrement=False)
+    telegram_user_id = Column(BigInteger, primary_key=True, autoincrement=False)
+    first_seen = Column(DateTime, default=datetime.utcnow)
+
+
 class ScrapedPage(Base):
     __tablename__ = "scraped_pages"
 

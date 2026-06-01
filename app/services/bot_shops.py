@@ -24,6 +24,7 @@ class BotInfo:
     username: str
     shop_url: str | None
     manager_enabled: bool
+    opt_in_flow: bool
 
 
 # bot_id -> BotInfo
@@ -43,13 +44,17 @@ async def init_bot_identity(bot: Bot) -> None:
     except Exception as e:
         logger.warning(f"Could not read menu button for @{me.username}: {e}")
 
-    manager_enabled = (me.username or "").lower() not in settings.ai_only_bot_set
+    uname = (me.username or "").lower()
+    manager_enabled = uname not in settings.ai_only_bot_set
+    opt_in_flow = uname in settings.opt_in_bot_set
     _registry[bot.id] = BotInfo(
-        bot_id=bot.id, username=me.username, shop_url=shop_url, manager_enabled=manager_enabled,
+        bot_id=bot.id, username=me.username, shop_url=shop_url,
+        manager_enabled=manager_enabled, opt_in_flow=opt_in_flow,
     )
     logger.info(
         f"Bot registered: @{me.username} (id={bot.id}) "
-        f"shop={shop_url or 'none'} manager={'on' if manager_enabled else 'off'}"
+        f"shop={shop_url or 'none'} manager={'on' if manager_enabled else 'off'} "
+        f"opt_in={'on' if opt_in_flow else 'off'}"
     )
 
 
@@ -66,6 +71,11 @@ def shop_url_for_bot(bot_id: int) -> str | None:
 def manager_enabled_for_bot(bot_id: int) -> bool:
     info = _registry.get(bot_id)
     return info.manager_enabled if info else True
+
+
+def opt_in_for_bot(bot_id: int) -> bool:
+    info = _registry.get(bot_id)
+    return info.opt_in_flow if info else False
 
 
 def bot_id_for_username(bot_username: str | None) -> int | None:

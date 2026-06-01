@@ -1,7 +1,7 @@
 from sqlalchemy import and_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-from app.database.models import ScrapedPage, SeenUser
+from app.database.models import OptInAcknowledged, ScrapedPage, SeenUser
 from app.database.session import async_session
 
 
@@ -15,6 +15,22 @@ async def mark_user_seen(telegram_user_id: int) -> bool:
             pg_insert(SeenUser)
             .values(telegram_user_id=telegram_user_id)
             .on_conflict_do_nothing(index_elements=["telegram_user_id"])
+        )
+        result = await session.execute(stmt)
+        await session.commit()
+        return result.rowcount == 1
+
+
+async def mark_opt_in_seen(bot_id: int, telegram_user_id: int) -> bool:
+    """Record an opt-in bot's first non-/start interaction with a user. Returns
+    True only on the first insert per (bot_id, user). Bot-scoped so the same
+    user can be handled per bot independently.
+    """
+    async with async_session() as session:
+        stmt = (
+            pg_insert(OptInAcknowledged)
+            .values(bot_id=bot_id, telegram_user_id=telegram_user_id)
+            .on_conflict_do_nothing(index_elements=["bot_id", "telegram_user_id"])
         )
         result = await session.execute(stmt)
         await session.commit()
