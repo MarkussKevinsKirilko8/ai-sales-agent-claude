@@ -1,12 +1,19 @@
+import os
+import re
+
 from pydantic_settings import BaseSettings
 
 
+# Match TELEGRAM_BOT_TOKEN_<digits> (the primary TELEGRAM_BOT_TOKEN is read
+# directly from the model field — this is for the numbered extras).
+_TOKEN_SUFFIX_RE = re.compile(r"^TELEGRAM_BOT_TOKEN_(\d+)$")
+
+
 class Settings(BaseSettings):
-    # Telegram bot tokens (slot 1 required; 2-4 optional).
+    # Telegram — primary bot token is required. Additional bots can be added by
+    # setting TELEGRAM_BOT_TOKEN_2, TELEGRAM_BOT_TOKEN_3, … with ANY numeric
+    # suffix (no upper limit). They're picked up dynamically from env.
     telegram_bot_token: str
-    telegram_bot_token_2: str = ""
-    telegram_bot_token_3: str = ""
-    telegram_bot_token_4: str = ""
 
     # Bots that are AI-only: no Manager button, no CRM events (comma-separated
     # usernames, @ optional). Defaults to the test bot.
@@ -20,16 +27,21 @@ class Settings(BaseSettings):
 
     @property
     def telegram_tokens(self) -> list[str]:
-        """All configured bot tokens, in order."""
-        return [
-            t for t in (
-                self.telegram_bot_token,
-                self.telegram_bot_token_2,
-                self.telegram_bot_token_3,
-                self.telegram_bot_token_4,
-            )
-            if t
-        ]
+        """All configured bot tokens, in order.
+
+        Returns the primary TELEGRAM_BOT_TOKEN first, then any TELEGRAM_BOT_TOKEN_N
+        (N is any positive integer) found in env, sorted by N. Add as many bots
+        as you want — no code change required to bump the count.
+        """
+        tokens = [self.telegram_bot_token] if self.telegram_bot_token else []
+        suffixed: list[tuple[int, str]] = []
+        for key, val in os.environ.items():
+            m = _TOKEN_SUFFIX_RE.match(key)
+            if m and val and val.strip():
+                suffixed.append((int(m.group(1)), val.strip()))
+        suffixed.sort()
+        tokens.extend(v for _, v in suffixed)
+        return tokens
 
     @property
     def ai_only_bot_set(self) -> set[str]:
