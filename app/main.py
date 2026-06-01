@@ -68,16 +68,24 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.error(f"Failed to read identity for bot {b.id}: {e}")
 
-    # Poll all bots in one dispatcher (same handlers serve every bot).
-    # drop_pending_updates=True is non-negotiable for the opt-in flow: existing
-    # customers of a pre-existing bot may have sent /start or messages weeks
-    # before we deployed the AI. Telegram queues those updates for ~24h. Without
-    # this flag, the bot would replay every queued /start on startup, triggering
-    # the opt-in prompt out of the blue for users mid-conversation with a human
-    # manager. With it, only fresh interactions after this startup are handled.
-    polling_task = asyncio.create_task(
-        dp.start_polling(*bots, handle_signals=False, drop_pending_updates=True)
-    )
+    # PER-BOT pending-update drain — for OPT-IN bots only.
+    # An opt-in bot had real users (in manager-mode with humans) before the AI
+    # was added. Telegram queues unprocessed updates for ~24h, so a stale
+    # /start or message from weeks ago would get replayed at startup, firing
+    # the opt-in prompt out of the blue for users mid-conversation. Dropping
+    # the queue for these bots only protects those users.
+    # Other bots (e.g. @hardteamru_bot) keep their queue intact — fresh
+    # messages sent during the rebuild window are still delivered.
+    for b in bots:
+        if bot_shops.opt_in_for_bot(b.id):
+            try:
+                await b.delete_webhook(drop_pending_updates=True)
+                logger.info(f"Drained pending updates for opt-in bot {b.id}")
+            except Exception as e:
+                logger.error(f"Failed to drain pending updates for {b.id}: {e}")
+
+    # Poll all bots in one dispatcher (same handlers serve every bot)
+    polling_task = asyncio.create_task(dp.start_polling(*bots, handle_signals=False))
 
     # Run scraper on a schedule (initial + every N hours)
     scrape_task = asyncio.create_task(scrape_loop())
