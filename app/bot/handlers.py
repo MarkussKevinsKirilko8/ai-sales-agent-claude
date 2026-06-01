@@ -70,17 +70,16 @@ def close_button(strings: dict) -> InlineKeyboardMarkup:
     ])
 
 
-def opt_in_button(strings: dict) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=strings["opt_in_button"], callback_data="switch_to_ai")]
-    ])
-
-
 async def _maybe_opt_in_intercept(message: types.Message, bot: Bot) -> bool:
-    """For "opt-in" bots (existed before the AI was added): the FIRST non-/start
-    interaction with an unrecognized user is treated as an existing customer.
-    Put them in manager mode + send the one-time "AI added — tap to switch"
-    prompt. Returns True if the message was handled here.
+    """Silent-manager-mode for opt-in bots (existed before the AI was added).
+
+    On a user's FIRST non-/start contact we put them silently into manager mode
+    and return True so the message is consumed without an AI reply. The bot
+    never proactively tells them about the AI — the explicit opt-in path is
+    `/start`, which always means "I want the AI." Existing customers keep
+    talking to their human manager via the CRM exactly as before. If they
+    stay silent for 24h, the expiry sweep auto-disables manager mode and they
+    land in AI mode.
 
     Gated by bot_shops.opt_in_for_bot — no effect on other bots.
     """
@@ -90,12 +89,11 @@ async def _maybe_opt_in_intercept(message: types.Message, bot: Bot) -> bool:
         return False  # already in manager mode; the silent refresh branch handles it
     is_first_contact = await mark_opt_in_seen(bot.id, message.from_user.id)
     if not is_first_contact:
-        return False  # prompt already shown once; AI mode from here on
-    # First non-/start touch on an opt-in bot → assume existing customer.
+        return False  # already acknowledged; normal AI path from here on
+    # First touch on an opt-in bot → assume existing customer.
     # enable_manager_mode fires CRM=true (idempotent if CRM already has them).
+    # NO message is sent — that's the whole point of silent-manager-mode.
     await enable_manager_mode(bot.id, message.chat.id)
-    strings = await get_strings("Russian")
-    await message.answer(strings["opt_in_message"], reply_markup=opt_in_button(strings))
     return True
 
 
@@ -229,15 +227,15 @@ async def handle_start(message: types.Message, bot: Bot) -> None:
     # First-time gate runs BEFORE the reply (atomic; a double-tap can't double-fire)
     is_new_user = await mark_user_seen(message.from_user.id)
 
-    # For opt-in bots: if this is the user's FIRST contact (no prior opt-in
-    # acknowledgement), treat them as a pre-existing customer — show only the
-    # opt-in prompt, NOT the AI welcome. Otherwise the user gets two messages.
-    if await _maybe_opt_in_intercept(message, bot):
-        return
-
-    # /start always resets state — exit manager mode if active
+    # /start ALWAYS means "I want the AI" — including for existing customers on
+    # opt-in bots. It's the explicit opt-in path. Reset manager mode if active
+    # (which fires CRM=false), so the CRM knows they switched.
     if await is_manager_mode(bot.id, message.chat.id):
         await disable_manager_mode(bot.id, message.chat.id)
+    # Record /start as their first contact for opt-in bots too, so a later
+    # non-/start message doesn't silently put them back in manager mode.
+    if bot_shops.opt_in_for_bot(bot.id):
+        await mark_opt_in_seen(bot.id, message.from_user.id)
 
     strings = await get_strings("Russian")
     await message.answer(
@@ -281,19 +279,6 @@ async def handle_manager_callback(callback: types.CallbackQuery, bot: Bot) -> No
     await callback.answer()
 
     await handle_manager_start(callback.message, bot, lang, user=callback.from_user)
-
-
-@router.callback_query(F.data == "switch_to_ai")
-async def handle_switch_to_ai(callback: types.CallbackQuery, bot: Bot) -> None:
-    """User on an opt-in bot tapped "Switch to AI" → leave manager mode."""
-    if await is_manager_mode(bot.id, callback.message.chat.id):
-        await disable_manager_mode(bot.id, callback.message.chat.id)
-    await callback.answer()
-
-    lang = await get_user_lang(callback.message.chat.id)
-    strings = await get_strings(lang)
-    # Remove the inline button by editing the original message
-    await callback.message.edit_text(strings["opt_in_confirmed"])
 
 
 @router.callback_query(F.data == "close_manager")
