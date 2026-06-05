@@ -25,6 +25,13 @@ class Settings(BaseSettings):
     # (comma-separated usernames, @ optional).
     opt_in_bots: str = ""
 
+    # Per-bot display name sent as `bot_handle` in the new-user notification
+    # webhook (lets the daily digest distinguish bots even though every bot
+    # reports bot_name="Sales Agent Claude"). Format: comma-separated
+    # username:Display Name pairs. Bots not listed here just omit bot_handle.
+    # Example: hardteamru_bot:Hard Team,RoidTeam_shop_rus_bot:Roid Team
+    bot_handles: str = ""
+
     @property
     def telegram_tokens(self) -> list[str]:
         """All configured bot tokens, in order.
@@ -50,6 +57,21 @@ class Settings(BaseSettings):
     @property
     def opt_in_bot_set(self) -> set[str]:
         return {b.strip().lstrip("@").lower() for b in self.opt_in_bots.split(",") if b.strip()}
+
+    @property
+    def bot_handle_map(self) -> dict[str, str]:
+        """Map of bot_username (lowercased, no @) -> display handle."""
+        out: dict[str, str] = {}
+        for pair in self.bot_handles.split(","):
+            pair = pair.strip()
+            if ":" not in pair:
+                continue
+            uname, handle = pair.split(":", 1)
+            uname = uname.strip().lstrip("@").lower()
+            handle = handle.strip()
+            if uname and handle:
+                out[uname] = handle
+        return out
 
     # Claude API
     claude_api_key: str

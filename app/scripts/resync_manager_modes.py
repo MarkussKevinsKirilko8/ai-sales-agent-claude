@@ -22,7 +22,7 @@ import redis.asyncio as aioredis
 from sqlalchemy import select
 
 from app.config.settings import settings
-from app.database.models import SeenUser
+from app.database.models import BotSeenUser
 from app.database.session import async_session
 from app.services.crm_signing import sign
 
@@ -57,9 +57,12 @@ async def main():
     url = settings.crm_base_url.rstrip("/") + "/api/autopilot/telegram/sync"
     r = aioredis.from_url(settings.redis_url)
 
-    # 1. Collect every user we know: seen_users (Postgres) + any current Redis sessions
+    # 1. Collect every user we know FOR THIS BOT: bot_seen_users (Postgres,
+    # scoped by bot_id) + any current Redis manager-mode sessions.
     async with async_session() as s:
-        seen = set((await s.execute(select(SeenUser.telegram_user_id))).scalars().all())
+        seen = set((await s.execute(
+            select(BotSeenUser.telegram_user_id).where(BotSeenUser.bot_id == BOT_ID)
+        )).scalars().all())
 
     in_mm = set()
     async for key in r.scan_iter(match=f"manager_mode:{BOT_ID}:*"):

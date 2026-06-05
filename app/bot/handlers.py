@@ -224,8 +224,9 @@ async def handle_start(message: types.Message, bot: Bot) -> None:
     if message.chat.type in ("group", "supergroup"):
         return
 
-    # First-time gate runs BEFORE the reply (atomic; a double-tap can't double-fire)
-    is_new_user = await mark_user_seen(message.from_user.id)
+    # Bot-scoped first-time gate (composite PK): same user can be "new" on each
+    # bot independently, which is what the daily-digest pooling needs.
+    is_new_user = await mark_user_seen(bot.id, message.from_user.id)
 
     # /start ALWAYS means "I want the AI" — including for existing customers on
     # opt-in bots. It's the explicit opt-in path. Reset manager mode if active
@@ -244,9 +245,10 @@ async def handle_start(message: types.Message, bot: Bot) -> None:
         reply_markup=main_keyboard(strings, bot.id),
     )
 
-    # Notify the fleet service in the background (only on the user's first /start)
+    # Notify the fleet service in the background (only on the user's first /start
+    # for THIS bot — bot.id is passed through for the bot_handle lookup).
     if is_new_user:
-        schedule_bot_start_notification(message.from_user)
+        schedule_bot_start_notification(message.from_user, bot.id)
 
 
 @router.message(Command("close"))

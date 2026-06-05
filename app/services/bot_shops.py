@@ -25,6 +25,7 @@ class BotInfo:
     shop_url: str | None
     manager_enabled: bool
     opt_in_flow: bool
+    handle: str | None  # display name sent as bot_handle in the new-user webhook
 
 
 # bot_id -> BotInfo
@@ -47,14 +48,15 @@ async def init_bot_identity(bot: Bot) -> None:
     uname = (me.username or "").lower()
     manager_enabled = uname not in settings.ai_only_bot_set
     opt_in_flow = uname in settings.opt_in_bot_set
+    handle = settings.bot_handle_map.get(uname)
     _registry[bot.id] = BotInfo(
         bot_id=bot.id, username=me.username, shop_url=shop_url,
-        manager_enabled=manager_enabled, opt_in_flow=opt_in_flow,
+        manager_enabled=manager_enabled, opt_in_flow=opt_in_flow, handle=handle,
     )
     logger.info(
         f"Bot registered: @{me.username} (id={bot.id}) "
         f"shop={shop_url or 'none'} manager={'on' if manager_enabled else 'off'} "
-        f"opt_in={'on' if opt_in_flow else 'off'}"
+        f"opt_in={'on' if opt_in_flow else 'off'} handle={handle or 'none'}"
     )
 
 
@@ -76,6 +78,11 @@ def manager_enabled_for_bot(bot_id: int) -> bool:
 def opt_in_for_bot(bot_id: int) -> bool:
     info = _registry.get(bot_id)
     return info.opt_in_flow if info else False
+
+
+def handle_for_bot(bot_id: int) -> str | None:
+    info = _registry.get(bot_id)
+    return info.handle if info else None
 
 
 def bot_id_for_username(bot_username: str | None) -> int | None:

@@ -13,9 +13,12 @@ import httpx
 from aiogram import types
 
 from app.config.settings import settings
+from app.services import bot_shops
 
 logger = logging.getLogger(__name__)
 
+# bot_name stays fixed for the whole fleet; per-bot identification in the daily
+# digest comes from the optional bot_handle field (looked up via bot_shops).
 BOT_NAME = "Sales Agent Claude"
 
 # Keep strong references to in-flight tasks so they aren't garbage-collected
@@ -23,7 +26,7 @@ BOT_NAME = "Sales Agent Claude"
 _background_tasks: set[asyncio.Task] = set()
 
 
-async def notify_bot_start(user: types.User) -> None:
+async def notify_bot_start(user: types.User, bot_id: int) -> None:
     """POST the new-user payload. Logs and swallows every error; never raises."""
     secret = settings.bot_start_webhook_secret
     if not (secret and settings.bot_start_webhook_url):
@@ -38,6 +41,13 @@ async def notify_bot_start(user: types.User) -> None:
         "telegram_last_name": user.last_name,
     }
 
+    # Optional: per-bot display name for the digest. Skip the field entirely
+    # if no handle is configured for this bot — server treats absence as "no
+    # handle segment in this row," which is fine.
+    handle = bot_shops.handle_for_bot(bot_id)
+    if handle:
+        payload["bot_handle"] = handle
+
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.post(
@@ -46,7 +56,7 @@ async def notify_bot_start(user: types.User) -> None:
                 headers={"Authorization": f"Bearer {secret}"},
             )
         if response.status_code == 200:
-            logger.info(f"New-user notification sent for {user.id}")
+            logger.info(f"New-user notification sent for {user.id} (bot={bot_id} handle={handle or 'none'})")
         else:
             logger.error(
                 f"New-user notification failed ({response.status_code}): "
@@ -56,8 +66,8 @@ async def notify_bot_start(user: types.User) -> None:
         logger.error(f"New-user notification error for {user.id}: {e}")
 
 
-def schedule_bot_start_notification(user: types.User) -> None:
+def schedule_bot_start_notification(user: types.User, bot_id: int) -> None:
     """Schedule notify_bot_start as a background task and return immediately."""
-    task = asyncio.create_task(notify_bot_start(user))
+    task = asyncio.create_task(notify_bot_start(user, bot_id))
     _background_tasks.add(task)
     task.add_done_callback(_background_tasks.discard)

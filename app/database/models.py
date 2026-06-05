@@ -8,14 +8,18 @@ class Base(DeclarativeBase):
     pass
 
 
-class SeenUser(Base):
-    """Tracks users who have pressed /start at least once.
+class BotSeenUser(Base):
+    """Tracks the FIRST /start per (bot, user). Composite PK so the new-user
+    notification webhook can fire once per (bot, user) — the daily digest
+    on the notification service then pools by bot via bot_handle.
 
-    Used to fire the "new user joined" webhook only on the user's FIRST ever
-    /start. Lives in Postgres (named volume) so it survives redeploys.
+    Replaces the previous global seen_users table (which only had user_id and
+    therefore couldn't distinguish bots). The old `seen_users` Postgres table
+    is now orphaned and safe to drop manually if you want to clean up.
     """
-    __tablename__ = "seen_users"
+    __tablename__ = "bot_seen_users"
 
+    bot_id = Column(BigInteger, primary_key=True, autoincrement=False)
     telegram_user_id = Column(BigInteger, primary_key=True, autoincrement=False)
     first_seen = Column(DateTime, default=datetime.utcnow)
 

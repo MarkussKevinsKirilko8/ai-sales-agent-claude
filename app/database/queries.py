@@ -1,20 +1,23 @@
 from sqlalchemy import and_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-from app.database.models import OptInAcknowledged, ScrapedPage, SeenUser
+from app.database.models import BotSeenUser, OptInAcknowledged, ScrapedPage
 from app.database.session import async_session
 
 
-async def mark_user_seen(telegram_user_id: int) -> bool:
-    """Record that a user has pressed /start. Returns True ONLY the first time
-    this user is inserted (atomic INSERT ... ON CONFLICT DO NOTHING), so a
-    /start double-tap or repeat can never fire the new-user webhook twice.
+async def mark_user_seen(bot_id: int, telegram_user_id: int) -> bool:
+    """Record a user's FIRST /start on a specific bot. Returns True only on
+    the first insert per (bot_id, user_id) — atomic INSERT ON CONFLICT DO
+    NOTHING, so a /start double-tap can never double-fire the webhook.
+
+    Bot-scoped: the same user can be "new" on each bot independently, which
+    is what the notification service's per-bot daily digest needs.
     """
     async with async_session() as session:
         stmt = (
-            pg_insert(SeenUser)
-            .values(telegram_user_id=telegram_user_id)
-            .on_conflict_do_nothing(index_elements=["telegram_user_id"])
+            pg_insert(BotSeenUser)
+            .values(bot_id=bot_id, telegram_user_id=telegram_user_id)
+            .on_conflict_do_nothing(index_elements=["bot_id", "telegram_user_id"])
         )
         result = await session.execute(stmt)
         await session.commit()
