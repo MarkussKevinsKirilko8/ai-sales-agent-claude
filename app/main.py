@@ -61,12 +61,21 @@ async def lifespan(app: FastAPI):
     app.state.redis = aioredis.from_url(settings.redis_url)
 
     # Cache each bot's @username + shop URL (used to key CRM events / build the
-    # Shop button) — read from Telegram, never hardcoded
+    # Shop button) — read from Telegram, never hardcoded.
+    # CRITICAL: bots whose token Telegram rejects (Unauthorized — revoked or
+    # corrupted in .env) are EXCLUDED from polling. Otherwise aiogram's polling
+    # raises for that bot and silently kills the polling task for the ENTIRE
+    # fleet (this took all 12 bots offline once). The healthy bots keep working.
+    healthy_bots = []
     for b in bots:
         try:
             await bot_shops.init_bot_identity(b)
+            healthy_bots.append(b)
         except Exception as e:
-            logger.error(f"Failed to read identity for bot {b.id}: {e}")
+            logger.error(
+                f"Failed to read identity for bot {b.id}: {e} — "
+                f"EXCLUDED from polling (fix its token in .env and restart)"
+            )
 
     # PER-BOT pending-update drain — for OPT-IN bots only.
     # An opt-in bot had real users (in manager-mode with humans) before the AI
@@ -76,7 +85,7 @@ async def lifespan(app: FastAPI):
     # the queue for these bots only protects those users.
     # Other bots (e.g. @hardteamru_bot) keep their queue intact — fresh
     # messages sent during the rebuild window are still delivered.
-    for b in bots:
+    for b in healthy_bots:
         if bot_shops.opt_in_for_bot(b.id):
             try:
                 await b.delete_webhook(drop_pending_updates=True)
@@ -84,8 +93,26 @@ async def lifespan(app: FastAPI):
             except Exception as e:
                 logger.error(f"Failed to drain pending updates for {b.id}: {e}")
 
-    # Poll all bots in one dispatcher (same handlers serve every bot)
-    polling_task = asyncio.create_task(dp.start_polling(*bots, handle_signals=False))
+    # Poll the healthy bots in one dispatcher (same handlers serve every bot)
+    if healthy_bots:
+        polling_task = asyncio.create_task(dp.start_polling(*healthy_bots, handle_signals=False))
+    else:
+        logger.critical("NO healthy bots — polling not started. Check tokens in .env.")
+        polling_task = None
+
+    def _polling_died(task: asyncio.Task) -> None:
+        """If polling ever dies mid-flight, scream about it instead of silence."""
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc:
+            logger.critical(
+                f"BOT POLLING DIED: {exc!r} — NO bot is receiving updates. "
+                f"Restart the app container after fixing the cause."
+            )
+
+    if polling_task:
+        polling_task.add_done_callback(_polling_died)
 
     # Run scraper on a schedule (initial + every N hours)
     scrape_task = asyncio.create_task(scrape_loop())
@@ -100,7 +127,8 @@ async def lifespan(app: FastAPI):
 
     # Shutdown
     dp.shutdown.set()
-    polling_task.cancel()
+    if polling_task:
+        polling_task.cancel()
     for b in bots:
         await b.session.close()
     await app.state.redis.close()
