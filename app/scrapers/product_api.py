@@ -84,11 +84,11 @@ def _get_all_langs(field) -> str:
     return ""
 
 
-def _fetch_products_sync() -> list[dict]:
-    """Synchronous API call to fetch products."""
+def _fetch_products_sync(shop: str) -> list[dict]:
+    """Synchronous API call fetching ONE shop's catalog (per-shop prices/currency)."""
     with httpx.Client(timeout=30.0) as client:
         response = client.get(
-            settings.product_api_url,
+            f"{settings.product_api_base}?webshop_link={shop}",
             headers={"Authorization": settings.product_api_token},
         )
         response.raise_for_status()
@@ -219,22 +219,22 @@ class ProductAPIScraper:
 
     source = "product_api"
 
-    async def scrape_all(self) -> list[dict]:
-        """Fetch all products from the API."""
+    async def scrape_all(self, shop: str) -> list[dict]:
+        """Fetch ONE shop's catalog from the API (tagged with its shop key)."""
         if not settings.product_api_url or not settings.product_api_token:
             logger.warning("Product API not configured — skipping")
             return []
 
-        logger.info("Fetching products from API...")
+        logger.info(f"Fetching products from API for shop {shop}...")
         loop = asyncio.get_event_loop()
 
         try:
-            raw_products = await loop.run_in_executor(None, _fetch_products_sync)
+            raw_products = await loop.run_in_executor(None, _fetch_products_sync, shop)
         except Exception as e:
-            logger.error(f"Failed to fetch from product API: {e}")
+            logger.error(f"Failed to fetch from product API for {shop}: {e}")
             return []
 
-        logger.info(f"API returned {len(raw_products)} products")
+        logger.info(f"API returned {len(raw_products)} products for {shop}")
 
         products = []
         for product in raw_products:
@@ -256,6 +256,7 @@ class ProductAPIScraper:
             shop_url = f"?page=product-details&code={code}" if code else (product.get("URL") or f"#{product.get('id', '')}")
 
             products.append({
+                "shop": shop,
                 "source": self.source,
                 "url": shop_url,
                 "title": title,
@@ -264,5 +265,5 @@ class ProductAPIScraper:
                 "page_type": "product",
             })
 
-        logger.info(f"Processed {len(products)} products from API")
+        logger.info(f"Processed {len(products)} products from API for {shop}")
         return products

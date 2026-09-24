@@ -32,6 +32,12 @@ class Settings(BaseSettings):
     # Example: hardteamru_bot:Hard Team,RoidTeam_shop_rus_bot:Roid Team
     bot_handles: str = ""
 
+    # Bots whose DEFAULT language is English (comma-separated usernames,
+    # @ optional). Everything — welcome, buttons, AI replies — defaults to
+    # English on these bots (they still mirror Russian if a user writes it).
+    # All other bots keep Russian as before.
+    english_bots: str = ""
+
     @property
     def telegram_tokens(self) -> list[str]:
         """All configured bot tokens, in order.
@@ -57,6 +63,25 @@ class Settings(BaseSettings):
     @property
     def opt_in_bot_set(self) -> set[str]:
         return {b.strip().lstrip("@").lower() for b in self.opt_in_bots.split(",") if b.strip()}
+
+    @property
+    def english_bot_set(self) -> set[str]:
+        return {b.strip().lstrip("@").lower() for b in self.english_bots.split(",") if b.strip()}
+
+    @property
+    def product_api_base(self) -> str:
+        """PRODUCT_API_URL without its query string — used to build per-shop
+        catalog URLs (?webshop_link=<shop>). Empty if the API isn't configured."""
+        return self.product_api_url.split("?", 1)[0] if self.product_api_url else ""
+
+    @property
+    def default_webshop_link(self) -> str:
+        """The webshop_link baked into PRODUCT_API_URL — the fallback catalog
+        for bots that have no mini-app shop of their own (e.g. the test bot)."""
+        if "webshop_link=" not in (self.product_api_url or ""):
+            return ""
+        link = self.product_api_url.split("webshop_link=", 1)[1]
+        return link.split("&", 1)[0]
 
     @property
     def bot_handle_map(self) -> dict[str, str]:

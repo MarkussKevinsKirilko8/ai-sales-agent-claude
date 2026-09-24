@@ -5,6 +5,7 @@ from sqlalchemy import delete, func, select
 from app.database.models import ScrapedPage
 from app.database.session import async_session
 from app.scrapers.product_api import ProductAPIScraper
+from app.services import bot_shops
 
 # Firecrawl scrapers (kept as fallback, currently disabled)
 # from app.scrapers.hilmabiocare import HilmaBiocareScraper
@@ -22,7 +23,14 @@ async def has_data() -> bool:
 
 
 async def run_scrapers(force: bool = False):
-    """Fetch products from the API and store in the database.
+    """Fetch every shop's catalog from the API and store per-shop.
+
+    Each bot has its own shop (mini-app) with its own products, prices and
+    currency — e.g. the Europe shop is in EUR. We scrape the default catalog
+    plus every registered bot's shop, so each bot answers from its own data.
+
+    A shop whose fetch fails keeps its previous rows (we only replace a shop's
+    rows after a successful fetch), so one flaky shop can't blank the others.
 
     Args:
         force: If True, sync even if data already exists.
@@ -31,33 +39,28 @@ async def run_scrapers(force: bool = False):
         logger.info("Database already has product data — skipping sync. Use POST /scrape to force.")
         return 0
 
-    all_products = []
+    shops = bot_shops.all_catalog_shops()
+    if not shops:
+        logger.warning("No shop catalogs to scrape (registry empty and no default webshop_link)")
+        return 0
 
-    # Primary: Product API
-    logger.info("Fetching from product API...")
     api_scraper = ProductAPIScraper()
-    api_products = await api_scraper.scrape_all()
-    all_products.extend(api_products)
-    logger.info(f"Product API: {len(api_products)} products fetched")
+    total = 0
 
-    # Fallback: Firecrawl scrapers (disabled)
-    # if not api_products:
-    #     logger.warning("API returned no products — falling back to Firecrawl")
-    #     scraper1 = HilmaBiocareScraper()
-    #     products1 = await scraper1.scrape_all()
-    #     all_products.extend(products1)
+    for shop in sorted(shops):
+        products = await api_scraper.scrape_all(shop)
+        if not products:
+            logger.warning(f"Shop {shop}: fetch returned nothing — keeping its previous rows")
+            continue
 
-    # Store in database
-    async with async_session() as session:
-        # Clear old data
-        await session.execute(delete(ScrapedPage))
+        async with async_session() as session:
+            # Replace ONLY this shop's rows, and only after a successful fetch
+            await session.execute(delete(ScrapedPage).where(ScrapedPage.shop == shop))
+            for product in products:
+                session.add(ScrapedPage(**product))
+            await session.commit()
 
-        # Insert new data
-        for product in all_products:
-            page = ScrapedPage(**product)
-            session.add(page)
+        logger.info(f"Shop {shop}: stored {len(products)} products")
+        total += len(products)
 
-        await session.commit()
-        logger.info(f"Stored {len(all_products)} products in database")
-
-    return len(all_products)
+    return total

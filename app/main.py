@@ -197,7 +197,7 @@ async def manager_mode_inbound(request: Request):
 
     # Notify the user via the correct bot (inline close button on takeover)
     try:
-        lang = await get_user_lang(chat_id)
+        lang = await get_user_lang(chat_id, default=bot_shops.language_for_bot(bot_id))
         strings = await get_strings(lang)
         if manager_mode:
             await target_bot.send_message(

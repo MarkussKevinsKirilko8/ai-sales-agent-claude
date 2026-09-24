@@ -97,18 +97,19 @@ async def _maybe_opt_in_intercept(message: types.Message, bot: Bot) -> bool:
     return True
 
 
-async def get_user_lang(chat_id: int, current_text: str = "") -> str:
-    """Get the user's preferred language. Detects from current text or recent history."""
+async def get_user_lang(chat_id: int, current_text: str = "", default: str = "Russian") -> str:
+    """Get the user's preferred language. Detects from current text or recent
+    history; falls back to the bot's default (English for ENGLISH_BOTS)."""
     if current_text:
-        return await detect_language(current_text)
+        return await detect_language(current_text, default)
 
     history = await get_history(chat_id)
     if history:
         last_user = next((m["content"] for m in reversed(history) if m["role"] == "user"), "")
         if last_user:
-            return await detect_language(last_user)
+            return await detect_language(last_user, default)
 
-    return "Russian"
+    return default
 
 
 async def summarize_conversation(history: list[dict], lang: str = "Russian") -> str:
@@ -238,7 +239,7 @@ async def handle_start(message: types.Message, bot: Bot) -> None:
     if bot_shops.opt_in_for_bot(bot.id):
         await mark_opt_in_seen(bot.id, message.from_user.id)
 
-    strings = await get_strings("Russian")
+    strings = await get_strings(bot_shops.language_for_bot(bot.id))
     await message.answer(
         strings["welcome"],
         parse_mode="HTML",
@@ -257,7 +258,7 @@ async def handle_close_command(message: types.Message, bot: Bot) -> None:
         return
 
     # Don't detect from "/close" text — use chat history to determine language
-    lang = await get_user_lang(message.chat.id)
+    lang = await get_user_lang(message.chat.id, default=bot_shops.language_for_bot(bot.id))
     strings = await get_strings(lang)
 
     if await is_manager_mode(bot.id, message.chat.id):
@@ -272,7 +273,7 @@ async def handle_close_command(message: types.Message, bot: Bot) -> None:
 
 @router.callback_query(F.data == "request_manager")
 async def handle_manager_callback(callback: types.CallbackQuery, bot: Bot) -> None:
-    lang = await get_user_lang(callback.message.chat.id)
+    lang = await get_user_lang(callback.message.chat.id, default=bot_shops.language_for_bot(bot.id))
     strings = await get_strings(lang)
 
     if await is_manager_mode(bot.id, callback.message.chat.id):
@@ -288,7 +289,7 @@ async def handle_close_manager(callback: types.CallbackQuery, bot: Bot) -> None:
     await disable_manager_mode(bot.id, callback.message.chat.id)
     await callback.answer()
 
-    lang = await get_user_lang(callback.message.chat.id)
+    lang = await get_user_lang(callback.message.chat.id, default=bot_shops.language_for_bot(bot.id))
     strings = await get_strings(lang)
 
     await callback.message.edit_text(strings["manager_closed"])
@@ -319,16 +320,16 @@ async def handle_voice(message: types.Message, bot: Bot) -> None:
 
     text = await transcribe_voice(file_bytes.getvalue())
     if not text:
-        strings = await get_strings("Russian")
+        strings = await get_strings(bot_shops.language_for_bot(bot.id))
         await message.answer(strings["voice_fail"], reply_markup=main_keyboard(strings, bot.id))
         return
 
-    lang = await detect_language(text)
+    lang = await detect_language(text, default=bot_shops.language_for_bot(bot.id))
 
     await bot.send_chat_action(chat_id=message.chat.id, action=ChatAction.TYPING)
 
     history = await get_history(message.chat.id)
-    response = await get_agent_response(text, chat_history=history)
+    response = await get_agent_response(text, chat_history=history, bot_id=bot.id)
 
     await add_message(message.chat.id, "user", text)
     await message.answer(f"🎤 <i>{text}</i>")
@@ -362,12 +363,12 @@ async def handle_message(message: types.Message, bot: Bot) -> None:
         await refresh_manager_mode(bot.id, message.chat.id)
         return
 
-    lang = await detect_language(message.text)
+    lang = await detect_language(message.text, default=bot_shops.language_for_bot(bot.id))
 
     await bot.send_chat_action(chat_id=message.chat.id, action=ChatAction.TYPING)
 
     history = await get_history(message.chat.id)
-    response = await get_agent_response(message.text, chat_history=history)
+    response = await get_agent_response(message.text, chat_history=history, bot_id=bot.id)
 
     await add_message(message.chat.id, "user", message.text)
 
@@ -399,5 +400,5 @@ async def handle_other(message: types.Message, bot: Bot) -> None:
         await refresh_manager_mode(bot.id, message.chat.id)
         return
 
-    strings = await get_strings("Russian")
+    strings = await get_strings(bot_shops.language_for_bot(bot.id))
     await message.answer(strings["other"], reply_markup=main_keyboard(strings, bot.id))

@@ -263,8 +263,9 @@ async def extract_product_names(user_message: str, chat_history: list[dict] = No
         return words, False, False
 
 
-async def find_relevant_products(user_message: str, chat_history: list[dict] = None) -> tuple[list, bool, bool]:
+async def find_relevant_products(user_message: str, shop: str, chat_history: list[dict] = None) -> tuple[list, bool, bool]:
     """Find products relevant to the user's query using Claude for understanding.
+    Searches ONLY the given shop's catalog (per-bot products/prices/currency).
     Returns (products, is_specific, wants_manager).
     """
     product_names, is_specific, wants_manager = await extract_product_names(user_message, chat_history)
@@ -286,17 +287,17 @@ async def find_relevant_products(user_message: str, chat_history: list[dict] = N
     if not product_names:
         return [], False, False
 
-    # Search for each product name
+    # Search for each product name (scoped to this bot's shop)
     all_results = []
     for name in product_names:
         # Try exact match on the full product name
         keywords = name.lower().split()
-        exact = await search_products_exact(keywords)
+        exact = await search_products_exact(keywords, shop)
         if exact:
             all_results.extend(exact)
         else:
             # Fall back to broad search
-            results = await search_products(name)
+            results = await search_products(name, shop)
             all_results.extend(results)
 
     # Deduplicate by URL
@@ -315,11 +316,11 @@ async def find_relevant_products(user_message: str, chat_history: list[dict] = N
     return unique_products, is_specific, False
 
 
-async def build_product_context(user_message: str, chat_history: list[dict] = None) -> tuple[str, list[dict], bool]:
+async def build_product_context(user_message: str, shop: str, chat_history: list[dict] = None) -> tuple[str, list[dict], bool]:
     """Build context string and return matched product images.
     Returns (context, images, wants_manager).
     """
-    unique_products, is_specific, wants_manager = await find_relevant_products(user_message, chat_history)
+    unique_products, is_specific, wants_manager = await find_relevant_products(user_message, shop, chat_history)
 
     if wants_manager:
         return "", [], True
@@ -356,15 +357,46 @@ async def build_product_context(user_message: str, chat_history: list[dict] = No
     return "\n".join(context_parts), product_images, False
 
 
-async def get_agent_response(user_message: str, chat_history: list[dict] = None) -> AgentResponse:
-    """Get a response from the Claude agent for a user message."""
+ENGLISH_MODE_BLOCK = """
+
+ENGLISH MODE — THIS BOT SERVES EUROPEAN CUSTOMERS (overrides the RF-specific rules above):
+- DEFAULT LANGUAGE: ENGLISH. Always respond in English, unless the user writes in Russian — then mirror their Russian as usual.
+- Express every scripted Russian response above in natural English instead of quoting the Russian text. The 6-line product card becomes:
+  [Product name]
+  Brand: [brand]
+  Dosage: [dosage]
+  Price: [price] € (or "To be confirmed" if not available)
+  🟢 In stock / 🟡 Expected soon
+  To order, tap the Shop button.
+- PRICES IN THIS SHOP'S CATALOG ARE IN EUR. Always show them as euros (e.g. "Price: 40 €"). NEVER mention rubles and NEVER convert currencies.
+- The Russia-specific rules DO NOT apply to this bot: ignore the RF delivery script (Почта России/EMS, RUB prices, excluded RF regions), the RUB payment minimums, and the RUB discount thresholds.
+- HGH PEN EXCEPTION: this shop DOES sell the pen injector (HGH Liquid PEN). When asked about HGH, clarify between HGH Liquid, HGH Powder and HGH Liquid PEN — all three are valid options here.
+- DELIVERY / PAYMENT / DISCOUNT questions: the EU terms are confirmed individually — reply that the manager will confirm delivery options, payment methods and any discounts, and suggest writing "manager". Do NOT invent carriers, delivery prices, payment minimums or discount thresholds.
+- Manager handoff still works the same: the trigger word is "manager" (also react to "менеджер" if written in Russian).
+"""
+
+
+async def get_agent_response(user_message: str, chat_history: list[dict] = None, bot_id: int | None = None) -> AgentResponse:
+    """Get a response from the Claude agent for a user message.
+
+    bot_id selects the bot's shop catalog (its own products/prices/currency)
+    and its default language (English for ENGLISH_BOTS, Russian otherwise).
+    """
+    from app.services import bot_shops
+
+    shop = bot_shops.catalog_shop_for_bot(bot_id)
+    language = bot_shops.language_for_bot(bot_id) if bot_id else "Russian"
+
     try:
-        product_context, product_images, wants_manager = await build_product_context(user_message, chat_history)
+        product_context, product_images, wants_manager = await build_product_context(user_message, shop, chat_history)
 
         if wants_manager:
             return AgentResponse(text="", wants_manager=True)
 
-        system = SYSTEM_PROMPT + product_context
+        system = SYSTEM_PROMPT
+        if language == "English":
+            system += ENGLISH_MODE_BLOCK
+        system += product_context
 
         # Build messages with conversation history
         messages = []
@@ -390,7 +422,9 @@ async def get_agent_response(user_message: str, chat_history: list[dict] = None)
 
     except Exception as e:
         logger.error(f"LLM API error: {e}")
-        return AgentResponse(
-            text="Произошла ошибка при обработке запроса. Пожалуйста, попробуйте ещё раз.",
-            is_error=True,
+        error_text = (
+            "Something went wrong while processing your request. Please try again."
+            if language == "English"
+            else "Произошла ошибка при обработке запроса. Пожалуйста, попробуйте ещё раз."
         )
+        return AgentResponse(text=error_text, is_error=True)

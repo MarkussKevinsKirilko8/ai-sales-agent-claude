@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import BigInteger, Column, DateTime, Integer, String, Text
+from sqlalchemy import BigInteger, Column, DateTime, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase
 
 
@@ -39,11 +39,24 @@ class OptInAcknowledged(Base):
 
 
 class ScrapedPage(Base):
-    __tablename__ = "scraped_pages"
+    """Per-shop product catalog.
+
+    `shop` is the webshop_link host (e.g. "RoidTeam_shop_europe_bot.miniapp-rf.app")
+    so each bot can search ONLY its own shop's products/prices. The same product
+    code exists in several shops, hence the (shop, url) uniqueness instead of a
+    globally-unique url.
+
+    Table renamed from `scraped_pages` (which had no shop column and a unique
+    url — create_all can't alter existing tables). The old `scraped_pages`
+    Postgres table is orphaned and safe to drop manually.
+    """
+    __tablename__ = "shop_products"
+    __table_args__ = (UniqueConstraint("shop", "url", name="uq_shop_products_shop_url"),)
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    source = Column(String(50), nullable=False)  # "hilmabiocare" or "hilmabiocareshop"
-    url = Column(String(500), unique=True, nullable=False)
+    shop = Column(String(200), nullable=False, index=True)  # webshop_link host
+    source = Column(String(50), nullable=False)  # "product_api"
+    url = Column(String(500), nullable=False)
     title = Column(String(500))
     content = Column(Text)
     image_url = Column(String(500))

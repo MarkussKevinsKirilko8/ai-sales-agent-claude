@@ -114,18 +114,22 @@ async def get_strings(lang: str) -> dict:
     return translated
 
 
-def detect_language_simple(text: str) -> str:
-    """Simple language detection without LLM call."""
+def detect_language_simple(text: str, default: str = "Russian") -> str:
+    """Simple language detection without LLM call.
+
+    Cyrillic text is always Russian. Anything else falls back to the bot's
+    default language (Russian for the fleet, English for ENGLISH_BOTS).
+    """
     if not text or len(text.strip()) < 2:
-        return "Russian"
+        return default
 
     for char in text:
         if "\u0400" <= char <= "\u04ff":
             return "Russian"
 
-    return "Russian"  # Default to Russian for this bot
+    return default
 
 
-async def detect_language(text: str) -> str:
+async def detect_language(text: str, default: str = "Russian") -> str:
     """Detect language — uses simple detection to avoid extra LLM calls."""
-    return detect_language_simple(text)
+    return detect_language_simple(text, default)

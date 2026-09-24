@@ -26,6 +26,7 @@ class BotInfo:
     manager_enabled: bool
     opt_in_flow: bool
     handle: str | None  # display name sent as bot_handle in the new-user webhook
+    language: str  # default language for this bot: "Russian" or "English"
 
 
 # bot_id -> BotInfo
@@ -49,14 +50,17 @@ async def init_bot_identity(bot: Bot) -> None:
     manager_enabled = uname not in settings.ai_only_bot_set
     opt_in_flow = uname in settings.opt_in_bot_set
     handle = settings.bot_handle_map.get(uname)
+    language = "English" if uname in settings.english_bot_set else "Russian"
     _registry[bot.id] = BotInfo(
         bot_id=bot.id, username=me.username, shop_url=shop_url,
         manager_enabled=manager_enabled, opt_in_flow=opt_in_flow, handle=handle,
+        language=language,
     )
     logger.info(
         f"Bot registered: @{me.username} (id={bot.id}) "
         f"shop={shop_url or 'none'} manager={'on' if manager_enabled else 'off'} "
-        f"opt_in={'on' if opt_in_flow else 'off'} handle={handle or 'none'}"
+        f"opt_in={'on' if opt_in_flow else 'off'} handle={handle or 'none'} "
+        f"lang={language}"
     )
 
 
@@ -83,6 +87,36 @@ def opt_in_for_bot(bot_id: int) -> bool:
 def handle_for_bot(bot_id: int) -> str | None:
     info = _registry.get(bot_id)
     return info.handle if info else None
+
+
+def language_for_bot(bot_id: int) -> str:
+    """The bot's default language ("Russian" unless listed in ENGLISH_BOTS)."""
+    info = _registry.get(bot_id)
+    return info.language if info else "Russian"
+
+
+def catalog_shop_for_bot(bot_id: int | None) -> str:
+    """Which shop's catalog this bot answers from: the host of its own mini-app
+    shop URL (each shop has its own products/prices/currency in the product
+    API), falling back to the default webshop_link from PRODUCT_API_URL for
+    bots without a shop (e.g. the test bot)."""
+    info = _registry.get(bot_id) if bot_id else None
+    if info and info.shop_url:
+        host = info.shop_url.split("//", 1)[-1].split("/", 1)[0]
+        if host:
+            return host
+    return settings.default_webshop_link
+
+
+def all_catalog_shops() -> set[str]:
+    """Every distinct shop catalog the fleet needs scraped (default + per-bot)."""
+    shops = {settings.default_webshop_link} if settings.default_webshop_link else set()
+    for info in _registry.values():
+        if info.shop_url:
+            host = info.shop_url.split("//", 1)[-1].split("/", 1)[0]
+            if host:
+                shops.add(host)
+    return shops
 
 
 def bot_id_for_username(bot_username: str | None) -> int | None:
