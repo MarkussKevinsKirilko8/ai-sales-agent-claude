@@ -17,6 +17,8 @@ _redis = None
 SOURCE_STRINGS = {
     "shop": "🛒 Магазин",
     "manager": "👤 Менеджер",
+    "shop_open": "🛒 Нажмите <b>Магазин</b>, чтобы посмотреть товары и цены.",
+    "shop_unavailable": "Ссылка на магазин для этого бота пока не настроена.",
     "close": "❌ Закрыть чат с менеджером",
     "manager_connect": (
         "Переключаем вас на менеджера. Время ответа: до 24 часов.\n"
@@ -41,12 +43,14 @@ SOURCE_STRINGS = {
     "other": "Отправьте текстовое или голосовое сообщение, и я помогу вам найти информацию.",
 }
 
-TRANSLATIONS_VERSION = 6
+TRANSLATIONS_VERSION = 7
 
 # Fixed English copy takes precedence over generated or previously cached text.
 ENGLISH_OVERRIDES = {
     "shop": "🛒 Shop",
     "manager": "👤 Manager",
+    "shop_open": "🛒 Click <b>Shop</b> to view products and prices.",
+    "shop_unavailable": "The shop link is not configured for this bot yet.",
     "welcome": (
         "👋 Welcome! I am an AI assistant for products in this store.\n\n"
         "Ask any question about products, availability, or prices.\n\n"

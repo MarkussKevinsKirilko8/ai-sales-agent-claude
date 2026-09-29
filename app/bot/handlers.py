@@ -252,6 +252,28 @@ async def handle_start(message: types.Message, bot: Bot) -> None:
         schedule_bot_start_notification(message.from_user, bot.id)
 
 
+@router.message(Command("shop"))
+async def handle_shop_command(message: types.Message, bot: Bot) -> None:
+    """Use fixed, bot-localized copy for /shop instead of an AI response."""
+    if message.chat.type in ("group", "supergroup"):
+        return
+
+    if await _maybe_opt_in_intercept(message, bot):
+        return
+
+    if await is_manager_mode(bot.id, message.chat.id):
+        await refresh_manager_mode(bot.id, message.chat.id)
+        return
+
+    strings = await get_strings(bot_shops.language_for_bot(bot.id))
+    shop_url = resolve_shop_url(bot.id)
+    await message.answer(
+        strings["shop_open" if shop_url else "shop_unavailable"],
+        parse_mode="HTML",
+        reply_markup=main_keyboard(strings, bot.id),
+    )
+
+
 @router.message(Command("close"))
 async def handle_close_command(message: types.Message, bot: Bot) -> None:
     if message.chat.type in ("group", "supergroup"):
