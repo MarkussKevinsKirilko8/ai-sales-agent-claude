@@ -43,6 +43,18 @@ SOURCE_STRINGS = {
 
 TRANSLATIONS_VERSION = 6
 
+# Fixed English copy takes precedence over generated or previously cached text.
+ENGLISH_OVERRIDES = {
+    "shop": "🛒 Shop",
+    "manager": "👤 Manager",
+    "welcome": (
+        "👋 Welcome! I am an AI assistant for products in this store.\n\n"
+        "Ask any question about products, availability, or prices.\n\n"
+        "🛒 Click <b>Shop</b> — to view and order\n"
+        "👤 Click <b>Manager</b> — to contact a manager"
+    ),
+}
+
 
 async def get_redis():
     global _redis
@@ -100,17 +112,21 @@ async def get_strings(lang: str) -> dict:
     r = await get_redis()
     key = _cache_key(lang.lower())
 
+    translated = None
     cached = await r.get(key)
     if cached:
         try:
-            return json.loads(cached)
+            translated = json.loads(cached)
         except json.JSONDecodeError:
             pass
 
-    logger.info(f"Translating UI to {lang} (first time)")
-    translated = await _translate_strings(lang)
+    if translated is None:
+        logger.info(f"Translating UI to {lang} (first time)")
+        translated = await _translate_strings(lang)
+        await r.set(key, json.dumps(translated, ensure_ascii=False))
 
-    await r.set(key, json.dumps(translated, ensure_ascii=False))
+    if lang.lower() in ("en", "english"):
+        return {**translated, **ENGLISH_OVERRIDES}
     return translated
 
 
