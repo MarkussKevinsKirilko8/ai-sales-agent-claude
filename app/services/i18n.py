@@ -51,6 +51,14 @@ ENGLISH_OVERRIDES = {
     "manager": "👤 Manager",
     "shop_open": "🛒 Click <b>Shop</b> to view products and prices.",
     "shop_unavailable": "The shop link is not configured for this bot yet.",
+    "manager_connect": (
+        "Connecting you to a manager.\n"
+        "Send /close to return to the AI assistant."
+    ),
+    "manager_waiting": (
+        "Your message has been sent to the manager.\n"
+        "Send /close to return to the AI assistant."
+    ),
     "welcome": (
         "👋 Welcome! I am an AI assistant for products in this store.\n\n"
         "Ask any question about products, availability, or prices.\n\n"
